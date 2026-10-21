@@ -367,7 +367,7 @@ class RefreshToken(Base):
     id: Mapped[uuid.UUID] = _uuid_pk()
     user_id: Mapped[uuid.UUID] = _fk("users.id", index=True)
     family_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    token_hash: Mapped[str] = mapped_column(CHAR(64), unique=True, nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -390,7 +390,7 @@ class OneTimeToken(Base):
     kind: Mapped[OneTimeTokenKind] = mapped_column(
         pg_enum(OneTimeTokenKind, "one_time_token_kind"), nullable=False
     )
-    token_hash: Mapped[str] = mapped_column(CHAR(64), unique=True, nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

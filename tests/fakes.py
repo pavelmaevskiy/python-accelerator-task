@@ -84,3 +84,23 @@ class FakeObjectStorage:
 
     def keys(self, prefix: str = "") -> list[str]:
         return sorted(k for k in self.objects if k.startswith(prefix))
+
+
+class FakeApprovalHandler:
+    """ApprovalSubjectHandler double that records calls."""
+
+    def __init__(self, subject_type: str = "event_rsvp", *, fail_on_approve: bool = False) -> None:
+        from app.core.enums import ApprovalSubjectType
+
+        self.subject_type = ApprovalSubjectType(subject_type)
+        self.fail_on_approve = fail_on_approve
+        self.approved: list[object] = []
+        self.denied_or_expired: list[object] = []
+
+    async def on_approved(self, session: object, approval: object) -> None:
+        if self.fail_on_approve:
+            raise RuntimeError("handler exploded")
+        self.approved.append(approval)
+
+    async def on_denied_or_expired(self, session: object, approval: object) -> None:
+        self.denied_or_expired.append(approval)

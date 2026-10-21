@@ -260,6 +260,13 @@ def fake_queue() -> FakeQueue:
 
 
 @pytest.fixture
+def approval_registry() -> Any:
+    from app.core.approvals import ApprovalHandlerRegistry
+
+    return ApprovalHandlerRegistry()
+
+
+@pytest.fixture
 def commitments() -> Any:
     from app.core.commitments import NoCommitments
 
@@ -281,6 +288,7 @@ async def container(
     fake_queue: FakeQueue,
     fake_storage: FakeObjectStorage,
     commitments: Any,
+    approval_registry: Any,
 ) -> Any:
     from app.core.container import Container
     from app.core.rate_limit import RateLimiter
@@ -298,6 +306,7 @@ async def container(
         rate_limiter=RateLimiter(redis),
         storage=fake_storage,
         commitments=commitments,
+        approval_registry=approval_registry,
     )
 
 
@@ -645,3 +654,59 @@ def busy_checker(container: Any) -> BusyChecker:
     checker = BusyChecker([uuid4(), uuid4()])
     container.commitments = checker
     return checker
+
+
+@pytest.fixture
+def handler_spy(approval_registry: Any) -> Any:
+    from tests.fakes import FakeApprovalHandler
+
+    handler = FakeApprovalHandler("event_rsvp")
+    approval_registry.register(handler)
+    return handler
+
+
+@pytest.fixture
+def make_approval(db_session: AsyncSession, clock: MutableClock) -> Callable[..., Any]:
+    from datetime import timedelta
+
+    from app.models.identity import PurchaseApproval
+
+    async def _make(
+        *,
+        parent: User,
+        player: PlayerProfile,
+        trainer: User,
+        subject_type: str = "event_rsvp",
+        status: str = "pending",
+        age: timedelta = timedelta(0),
+        amount_cents: int | None = 2500,
+    ) -> PurchaseApproval:
+        requested = clock.now() - age
+        approval = PurchaseApproval(
+            player_profile_id=player.id,
+            parent_user_id=parent.id,
+            trainer_id=trainer.id,
+            subject_type=subject_type,
+            subject_id=new_id(),
+            amount_cents=amount_cents,
+            status=status,
+            requested_at=requested,
+            expires_at=requested + timedelta(hours=48),
+        )
+        db_session.add(approval)
+        await db_session.commit()
+        return approval
+
+    return _make
+
+
+@pytest_asyncio.fixture
+async def pending(
+    player_client: Any,
+    make_dependent: Callable[..., Any],
+    make_trainer: Callable[..., Any],
+    make_approval: Callable[..., Any],
+) -> Any:
+    kid = await make_dependent(player_client.user)
+    trainer = await make_trainer()
+    return await make_approval(parent=player_client.user, player=kid, trainer=trainer)

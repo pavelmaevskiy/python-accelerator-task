@@ -12,6 +12,7 @@ from app.api.deps import (
     require_role,
 )
 from app.api.responses import error_responses
+from app.api.v1.me.approval_routes import router as approval_router
 from app.api.v1.me.player_routes import router as player_router
 from app.api.v1.me.schemas import (
     AvailabilityResponse,
@@ -32,6 +33,7 @@ router = APIRouter(
 )
 
 router.include_router(player_router)
+router.include_router(approval_router)
 
 
 @router.get("", response_model=ProfileResponse, summary="Get the current user's profile")

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from app.core.approvals import ApprovalHandlerRegistry
 from app.core.clock import Clock, SystemClock
 from app.core.commitments import CommitmentChecker, NoCommitments
 from app.core.config import Settings
@@ -30,6 +31,7 @@ class Container:
     rate_limiter: RateLimiter
     storage: ObjectStorage
     commitments: CommitmentChecker
+    approval_registry: ApprovalHandlerRegistry
 
 
 @asynccontextmanager
@@ -55,6 +57,7 @@ async def build_container(settings: Settings) -> AsyncIterator[Container]:
             rate_limiter=RateLimiter(redis),
             storage=S3ObjectStorage(settings.s3_bucket, settings.media_base_url),
             commitments=NoCommitments(),
+            approval_registry=ApprovalHandlerRegistry(),
         )
     finally:
         await arq_pool.aclose()

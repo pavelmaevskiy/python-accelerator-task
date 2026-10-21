@@ -1,7 +1,8 @@
 from datetime import UTC, date, datetime
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 
+@runtime_checkable
 class Clock(Protocol):
     def now(self) -> datetime: ...
 

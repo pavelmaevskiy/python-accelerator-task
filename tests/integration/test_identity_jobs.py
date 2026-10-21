@@ -63,6 +63,7 @@ async def test_every_job_is_registered_for_the_worker() -> None:
         "send_email_change_email",
         "send_approval_notification",
         "delete_s3_object",
+        "expire_purchase_approvals",
     }
 
 
@@ -72,3 +73,43 @@ async def test_delete_s3_object_job_is_idempotent(fake_storage) -> None:
     await jobs.delete_s3_object(ctx, key="avatars/x/y.png")
     await jobs.delete_s3_object(ctx, key="avatars/x/y.png")  # second run: no error
     assert fake_storage.keys() == []
+
+
+async def test_expire_purchase_approvals_job_expires_only_overdue_pending_rows(
+    sessionmaker_,
+    container,
+    db_session,
+    make_user,
+    make_trainer,
+    make_dependent,
+    make_approval,
+    clock,
+) -> None:
+    from datetime import timedelta
+
+    from sqlalchemy import select
+
+    from app.models.identity import PurchaseApproval
+
+    parent = await make_user()
+    kid = await make_dependent(parent)
+    trainer = await make_trainer()
+    old = await make_approval(parent=parent, player=kid, trainer=trainer, age=timedelta(hours=49))
+    fresh = await make_approval(parent=parent, player=kid, trainer=trainer, age=timedelta(hours=1))
+    ctx = {
+        "sessionmaker": sessionmaker_,
+        "approval_registry": container.approval_registry,
+        "clock": clock,
+        "queue": container.queue,
+    }
+    assert await jobs.expire_purchase_approvals(ctx) == 1
+    assert await jobs.expire_purchase_approvals(ctx) == 0  # idempotent
+    rows = {
+        r.id: r.status.value
+        for r in (
+            await db_session.execute(
+                select(PurchaseApproval).execution_options(populate_existing=True)
+            )
+        ).scalars()
+    }
+    assert rows == {old.id: "expired", fresh.id: "pending"}

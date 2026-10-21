@@ -6,13 +6,14 @@ to the queue only after a successful commit, so a rolled-back transaction never 
 
 from dataclasses import dataclass, field
 from types import TracebackType
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from sqlalchemy.ext.asyncio import AsyncSession, AsyncSessionTransaction
 
 JobArg = str | int | bool | None
 
 
+@runtime_checkable
 class JobQueue(Protocol):
     async def enqueue(self, name: str, **kwargs: JobArg) -> None: ...
 

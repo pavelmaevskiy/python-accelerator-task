@@ -14,13 +14,16 @@ from app.core.enums import UserRole
 from app.core.errors import AuthenticationError, PermissionDeniedError
 from app.core.principal import Principal
 from app.core.unit_of_work import UnitOfWork
+from app.repositories.approval_repo import ApprovalRepo
 from app.repositories.audit_repo import AuditRepo
 from app.repositories.availability_repo import AvailabilityRepo
+from app.repositories.idempotency_repo import IdempotencyRepo
 from app.repositories.profile_repo import ProfileRepo
 from app.repositories.share_link_repo import ShareLinkRepo
 from app.repositories.tenancy_repo import TenancyRepo
 from app.repositories.token_repo import TokenRepo
 from app.repositories.user_repo import UserRepo
+from app.services.approval_service import ApprovalService
 from app.services.audit_service import AuditService
 from app.services.auth_service import AuthService
 from app.services.availability_service import AvailabilityService
@@ -318,3 +321,18 @@ def get_player_service(session: SessionDep, uow: UowDep, container: ContainerDep
 
 
 PlayerServiceDep = Annotated[PlayerService, Depends(get_player_service)]
+
+
+def get_approval_service(
+    session: SessionDep, uow: UowDep, container: ContainerDep
+) -> ApprovalService:
+    return ApprovalService(
+        uow,
+        ApprovalRepo(session),
+        IdempotencyRepo(session),
+        container.approval_registry,
+        container.clock,
+    )
+
+
+ApprovalServiceDep = Annotated[ApprovalService, Depends(get_approval_service)]

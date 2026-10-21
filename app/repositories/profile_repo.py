@@ -61,3 +61,10 @@ class ProfileRepo:
     async def get_coach_profile(self, user_id: uuid.UUID) -> CoachProfile | None:
         stmt = select(CoachProfile).where(CoachProfile.user_id == user_id)
         return (await self._session.execute(stmt)).scalar_one_or_none()
+
+    async def get_player_profile_for_login(self, login_user_id: uuid.UUID) -> PlayerProfile | None:
+        """The dependent profile a child login belongs to."""
+        stmt = select(PlayerProfile).where(
+            PlayerProfile.login_user_id == login_user_id, PlayerProfile.is_active.is_(True)
+        )
+        return (await self._session.execute(stmt)).scalars().first()

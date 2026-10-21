@@ -1,7 +1,8 @@
-from typing import Any
+from datetime import time
+from typing import Any, Literal, Self
 from uuid import UUID
 
-from pydantic import EmailStr, Field
+from pydantic import EmailStr, Field, model_validator
 
 from app.api.schemas import ORMModel, StrictModel, Timezone
 from app.core.enums import UserRole, UserStatus
@@ -59,3 +60,34 @@ class UpdateProfile(StrictModel):
 class EmailChangeRequest(StrictModel):
     new_email: EmailStr = Field(max_length=255)
     current_password: str = Field(min_length=1, max_length=128)
+
+
+class AvailabilityWindowIn(StrictModel):
+    weekday: int = Field(ge=0, le=6)
+    start_time: time
+    end_time: time
+    is_available: bool = True
+
+    @model_validator(mode="after")
+    def _start_before_end(self) -> Self:
+        if self.start_time >= self.end_time:
+            raise ValueError("start_time must be before end_time")
+        return self
+
+
+class ReplaceAvailability(StrictModel):
+    windows: list[AvailabilityWindowIn] = Field(max_length=100)
+
+
+class AvailabilityWindowOut(ORMModel):
+    id: UUID
+    weekday: int
+    start_time: time
+    end_time: time
+    is_available: bool
+
+
+class AvailabilityResponse(ORMModel):
+    subject_type: Literal["player", "coach"]
+    subject_id: UUID
+    windows: list[AvailabilityWindowOut]

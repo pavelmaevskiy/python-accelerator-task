@@ -3,9 +3,16 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response
 
-from app.api.deps import PrincipalDep, ShareLinkServiceDep, default_rate_limit, require_role
+from app.api.deps import (
+    AvailabilityServiceDep,
+    PrincipalDep,
+    ShareLinkServiceDep,
+    default_rate_limit,
+    require_role,
+)
 from app.api.responses import error_responses
 from app.api.schemas import Page
+from app.api.v1.me.schemas import AvailabilityResponse
 from app.api.v1.trainer.schemas import CreateShareLink, ShareLinkListParams, ShareLinkResponse
 from app.core.enums import ShareLinkKind, UserRole
 
@@ -67,3 +74,15 @@ async def delete_share_link(
 ) -> Response:
     await service.deactivate(principal, link_id)
     return Response(status_code=204)
+
+
+@router.get(
+    "/players/{player_id}/availability",
+    response_model=AvailabilityResponse,
+    summary="Read a linked player's availability",
+    responses=error_responses(404),
+)
+async def get_player_availability(
+    player_id: uuid.UUID, principal: PrincipalDep, service: AvailabilityServiceDep
+) -> AvailabilityResponse:
+    return AvailabilityResponse.model_validate(await service.get_for_trainer(principal, player_id))

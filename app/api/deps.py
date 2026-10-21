@@ -15,6 +15,7 @@ from app.core.errors import AuthenticationError, PermissionDeniedError
 from app.core.principal import Principal
 from app.core.unit_of_work import UnitOfWork
 from app.repositories.audit_repo import AuditRepo
+from app.repositories.availability_repo import AvailabilityRepo
 from app.repositories.profile_repo import ProfileRepo
 from app.repositories.share_link_repo import ShareLinkRepo
 from app.repositories.tenancy_repo import TenancyRepo
@@ -22,6 +23,7 @@ from app.repositories.token_repo import TokenRepo
 from app.repositories.user_repo import UserRepo
 from app.services.audit_service import AuditService
 from app.services.auth_service import AuthService
+from app.services.availability_service import AvailabilityService
 from app.services.principal_service import PrincipalService
 from app.services.registration_service import RegistrationService
 from app.services.sharelink_service import ShareLinkService
@@ -151,6 +153,11 @@ async def reject_impersonation(principal: PrincipalDep) -> None:
         raise PermissionDeniedError(
             "ADMIN_FORBIDDEN_WHILE_IMPERSONATING", "Not available while impersonating"
         )
+
+
+async def reject_child(principal: PrincipalDep) -> None:
+    if principal.is_child:
+        raise PermissionDeniedError("CHILD_FORBIDDEN", "Not available to child accounts")
 
 
 async def require_tenant_scope(principal: PrincipalDep) -> uuid.UUID:
@@ -287,3 +294,12 @@ def get_user_service(
 
 
 UserServiceDep = Annotated[UserService, Depends(get_user_service)]
+
+
+def get_availability_service(session: SessionDep, uow: UowDep) -> AvailabilityService:
+    return AvailabilityService(
+        uow, AvailabilityRepo(session), ProfileRepo(session), TenancyRepo(session)
+    )
+
+
+AvailabilityServiceDep = Annotated[AvailabilityService, Depends(get_availability_service)]

@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     refresh_ttl_days: int = 30
     ip_hash_salt: str = ""
     s3_bucket: str = ""
+    media_base_url: str = ""  # public base URL for stored media; defaults to the S3 bucket URL
     public_base_url: str = "http://localhost:8000"
 
     @model_validator(mode="after")

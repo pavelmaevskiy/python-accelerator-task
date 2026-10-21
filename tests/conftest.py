@@ -36,7 +36,7 @@ from app.models.identity import (
     TrainerProfile,
     User,
 )
-from tests.fakes import FakeQueue, MutableClock
+from tests.fakes import FakeObjectStorage, FakeQueue, MutableClock
 
 ROOT = Path(__file__).resolve().parent.parent
 TEST_PASSWORD = "correct horse battery staple"  # noqa: S105
@@ -252,6 +252,11 @@ def fake_queue() -> FakeQueue:
     return FakeQueue()
 
 
+@pytest.fixture
+def fake_storage() -> FakeObjectStorage:
+    return FakeObjectStorage()
+
+
 @pytest_asyncio.fixture
 async def container(
     settings: Any,
@@ -260,6 +265,7 @@ async def container(
     redis: Any,
     clock: MutableClock,
     fake_queue: FakeQueue,
+    fake_storage: FakeObjectStorage,
 ) -> Any:
     from app.core.container import Container
     from app.core.rate_limit import RateLimiter
@@ -275,6 +281,7 @@ async def container(
         clock=clock,
         queue=fake_queue,
         rate_limiter=RateLimiter(redis),
+        storage=fake_storage,
     )
 
 

@@ -26,6 +26,8 @@ from app.services.principal_service import PrincipalService
 from app.services.registration_service import RegistrationService
 from app.services.sharelink_service import ShareLinkService
 from app.services.token_issuer import TokenIssuer
+from app.services.upload_service import UploadService
+from app.services.user_service import UserService
 
 bearer_scheme = HTTPBearer(auto_error=False, scheme_name="BearerAuth")
 
@@ -235,7 +237,9 @@ AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 def get_sharelink_service(
     session: SessionDep, uow: UowDep, container: ContainerDep
 ) -> ShareLinkService:
-    return ShareLinkService(uow, ShareLinkRepo(session), container.clock, container.settings)
+    return ShareLinkService(
+        uow, ShareLinkRepo(session), container.clock, container.settings, container.storage
+    )
 
 
 ShareLinkServiceDep = Annotated[ShareLinkService, Depends(get_sharelink_service)]
@@ -258,3 +262,28 @@ def get_registration_service(
 
 
 RegistrationServiceDep = Annotated[RegistrationService, Depends(get_registration_service)]
+
+
+def get_upload_service(container: ContainerDep) -> UploadService:
+    return UploadService(container.storage)
+
+
+UploadServiceDep = Annotated[UploadService, Depends(get_upload_service)]
+
+
+def get_user_service(
+    session: SessionDep, uow: UowDep, uploads: UploadServiceDep, container: ContainerDep
+) -> UserService:
+    return UserService(
+        uow=uow,
+        users=UserRepo(session),
+        profiles=ProfileRepo(session),
+        tokens=TokenRepo(session),
+        uploads=uploads,
+        storage=container.storage,
+        hasher=container.hasher,
+        clock=container.clock,
+    )
+
+
+UserServiceDep = Annotated[UserService, Depends(get_user_service)]

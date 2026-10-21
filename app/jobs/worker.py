@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.core.config import get_settings
 from app.core.email import LoggingEmailSender
+from app.core.storage import S3ObjectStorage
 from app.db.session import create_engine, create_sessionmaker
 from app.jobs.identity_jobs import IDENTITY_JOBS, JobContext
 from app.services.notification_service import NotificationService
@@ -14,6 +15,7 @@ async def on_startup(ctx: JobContext) -> None:
     settings = get_settings()
     engine = create_engine(settings.database_url, pool_size=5)
     ctx["engine"] = engine
+    ctx["storage"] = S3ObjectStorage(settings.s3_bucket, settings.media_base_url)
     ctx["notifications"] = NotificationService(
         create_sessionmaker(engine), LoggingEmailSender(), settings
     )

@@ -49,3 +49,15 @@ class ProfileRepo:
             PlayerProfile.is_active.is_(True),
         )
         return list((await self._session.execute(stmt)).scalars().all())
+
+    async def get_trainer_profile(self, user_id: uuid.UUID) -> TrainerProfile | None:
+        stmt = select(TrainerProfile).where(TrainerProfile.user_id == user_id)
+        return (await self._session.execute(stmt)).scalar_one_or_none()
+
+    async def get_trainer_profile_by_slug(self, slug: str) -> TrainerProfile | None:
+        stmt = select(TrainerProfile).where(TrainerProfile.slug == slug)
+        return (await self._session.execute(stmt)).scalar_one_or_none()
+
+    async def get_coach_profile(self, user_id: uuid.UUID) -> CoachProfile | None:
+        stmt = select(CoachProfile).where(CoachProfile.user_id == user_id)
+        return (await self._session.execute(stmt)).scalar_one_or_none()

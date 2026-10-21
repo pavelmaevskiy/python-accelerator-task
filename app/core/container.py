@@ -11,6 +11,7 @@ from app.core.clock import Clock, SystemClock
 from app.core.config import Settings
 from app.core.rate_limit import RateLimiter
 from app.core.security import PasswordHasher, TokenCodec
+from app.core.storage import ObjectStorage, S3ObjectStorage
 from app.core.unit_of_work import JobQueue
 from app.db.session import create_engine, create_sessionmaker
 
@@ -26,6 +27,7 @@ class Container:
     clock: Clock
     queue: JobQueue
     rate_limiter: RateLimiter
+    storage: ObjectStorage
 
 
 @asynccontextmanager
@@ -49,6 +51,7 @@ async def build_container(settings: Settings) -> AsyncIterator[Container]:
             clock=SystemClock(),
             queue=ArqJobQueue(arq_pool),
             rate_limiter=RateLimiter(redis),
+            storage=S3ObjectStorage(settings.s3_bucket, settings.media_base_url),
         )
     finally:
         await arq_pool.aclose()

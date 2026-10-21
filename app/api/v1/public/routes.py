@@ -21,6 +21,6 @@ async def preview_share_link(
     return ShareLinkPreview(
         trainer_business_name=view.trainer_business_name,
         trainer_slug=view.trainer_slug,
-        logo_url=None,  # resolved from the stored key once object storage lands (Task 14)
+        logo_url=view.logo_url,
         kind=view.kind.value,
     )

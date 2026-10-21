@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 
+from app.core.storage import ObjectMeta, PresignedUpload
 from app.core.unit_of_work import JobArg
 
 
@@ -37,3 +38,49 @@ class FakeQueue:
 
     def named(self, name: str) -> list[RecordedJob]:
         return [j for j in self.jobs if j.name == name]
+
+
+class FakeObjectStorage:
+    """In-memory ObjectStorage. ``seed`` simulates the client's direct upload to quarantine."""
+
+    def __init__(self) -> None:
+        self.objects: dict[str, bytes] = {}
+        self.content_types: dict[str, str] = {}
+        self.presigned: list[tuple[str, str, int, int]] = []
+
+    def seed(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> None:
+        self.objects[key] = data
+        self.content_types[key] = content_type
+
+    async def presign_put(
+        self, key: str, content_type: str, content_length: int, expires_in: int
+    ) -> PresignedUpload:
+        self.presigned.append((key, content_type, content_length, expires_in))
+        return PresignedUpload(
+            url=f"https://storage.test/{key}?sig=fake",
+            headers={"Content-Type": content_type, "Content-Length": str(content_length)},
+        )
+
+    async def head(self, key: str) -> ObjectMeta | None:
+        if key not in self.objects:
+            return None
+        return ObjectMeta(len(self.objects[key]), self.content_types.get(key))
+
+    async def get(self, key: str) -> bytes:
+        return self.objects[key]
+
+    async def put(self, key: str, data: bytes, content_type: str) -> None:
+        self.seed(key, data, content_type)
+
+    async def copy(self, src: str, dst: str) -> None:
+        self.seed(dst, self.objects[src], self.content_types.get(src, ""))
+
+    async def delete(self, key: str) -> None:
+        self.objects.pop(key, None)
+        self.content_types.pop(key, None)
+
+    def public_url(self, key: str | None) -> str | None:
+        return None if key is None else f"https://cdn.test/{key}"
+
+    def keys(self, prefix: str = "") -> list[str]:
+        return sorted(k for k in self.objects if k.startswith(prefix))

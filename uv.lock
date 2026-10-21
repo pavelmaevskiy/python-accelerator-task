@@ -1661,6 +1661,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "ruff" },
     { name = "types-boto3" },
+    { name = "types-defusedxml" },
     { name = "types-zxcvbn" },
 ]
 
@@ -1696,6 +1697,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "ruff" },
     { name = "types-boto3" },
+    { name = "types-defusedxml", specifier = ">=0.7.0.20260504" },
     { name = "types-zxcvbn", specifier = ">=4.5.0.20260518" },
 ]
 
@@ -1710,6 +1712,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/5d/d6/73e588d371c500831d255d011ab658edf3555d8a5f3fe3dfa6ed10a76c7d/types_boto3-1.43.116.tar.gz", hash = "sha256:1975f53b64340dbd8aba68734407d4a75d1d84bf1fa504071f2a549e962889c5", size = 106083, upload-time = "2026-10-20T21:59:58.618Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a1/10/6b817c5b35e6218404890e6b186f33eb2e6bb92920ae4e8fd12f33b1c5d1/types_boto3-1.43.116-py3-none-any.whl", hash = "sha256:c5f3a599ad3f1f1a89401391c7f9ba311d9b76529bc485c74530a44d6bf32be8", size = 72086, upload-time = "2026-10-20T21:59:52.264Z" },
+]
+
+[[package]]
+name = "types-defusedxml"
+version = "0.7.0.20260504"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/da/d2/4553c8fa9cdebfe1e84b950cf790a4d2376a97fa016e43f7c65323fa6c7d/types_defusedxml-0.7.0.20260504.tar.gz", hash = "sha256:2ab2828a3f97111ba1c16cee273ad4124a831fc9198c41bf8368ff6ea48ad300", size = 10729, upload-time = "2026-05-04T05:22:50.192Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/bf/2d/8a4b5ba1d732b8bc691f0efbb1c6f77cb5f6f473b2afe181d83d910773c5/types_defusedxml-0.7.0.20260504-py3-none-any.whl", hash = "sha256:a959e3a0a43b93e464bd625d91ec9193a2703ddc10443bdd627792485fae0b10", size = 13467, upload-time = "2026-05-04T05:22:49.319Z" },
 ]
 
 [[package]]

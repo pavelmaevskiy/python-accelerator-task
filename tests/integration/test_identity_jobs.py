@@ -62,4 +62,13 @@ async def test_every_job_is_registered_for_the_worker() -> None:
         "send_coach_invite_email",
         "send_email_change_email",
         "send_approval_notification",
+        "delete_s3_object",
     }
+
+
+async def test_delete_s3_object_job_is_idempotent(fake_storage) -> None:
+    fake_storage.seed("avatars/x/y.png", b"data")
+    ctx = {"storage": fake_storage}
+    await jobs.delete_s3_object(ctx, key="avatars/x/y.png")
+    await jobs.delete_s3_object(ctx, key="avatars/x/y.png")  # second run: no error
+    assert fake_storage.keys() == []

@@ -11,6 +11,7 @@ from app.core.enums import ShareLinkEventKind, ShareLinkKind, UserStatus
 from app.core.errors import DomainValidationError, NotFoundError
 from app.core.pagination import PageResult, build_page, decode_cursor
 from app.core.principal import Principal
+from app.core.storage import ObjectStorage
 from app.core.unit_of_work import UnitOfWork
 from app.models.identity import ShareLink, ShareLinkEvent
 from app.repositories.share_link_repo import ShareLinkRepo
@@ -36,7 +37,7 @@ class ShareLinkView:
 class ShareLinkPreviewView:
     trainer_business_name: str
     trainer_slug: str
-    logo_key: str | None
+    logo_url: str | None
     kind: ShareLinkKind
 
 
@@ -56,9 +57,11 @@ class ShareLinkService:
         links: ShareLinkRepo,
         clock: Clock,
         settings: Settings,
+        storage: ObjectStorage,
     ) -> None:
         self._uow = uow
         self._links = links
+        self._storage = storage
         self._clock = clock
         self._base = settings.public_base_url.rstrip("/")
 
@@ -155,6 +158,6 @@ class ShareLinkService:
             return ShareLinkPreviewView(
                 trainer_business_name=found.business_name,
                 trainer_slug=found.slug,
-                logo_key=found.logo_key,
+                logo_url=self._storage.public_url(found.logo_key),
                 kind=found.link.kind,
             )

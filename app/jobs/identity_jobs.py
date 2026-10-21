@@ -3,6 +3,7 @@
 Raw tokens are passed through the queue but must never be logged.
 """
 
+from app.core.storage import ObjectStorage
 from app.services.notification_service import NotificationService
 
 JobContext = dict[str, object]
@@ -44,7 +45,15 @@ async def send_approval_notification(ctx: JobContext, *, approval_id: str) -> No
     await _notifier(ctx).approval_notification(approval_id)
 
 
+async def delete_s3_object(ctx: JobContext, *, key: str) -> None:
+    """Idempotent: deleting a missing key is a no-op in S3."""
+    storage = ctx["storage"]
+    assert isinstance(storage, ObjectStorage)  # noqa: S101
+    await storage.delete(key)
+
+
 IDENTITY_JOBS = [
+    delete_s3_object,
     send_verification_email,
     send_welcome_email,
     send_password_reset_email,

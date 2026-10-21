@@ -15,12 +15,14 @@ from app.core.errors import AuthenticationError, PermissionDeniedError
 from app.core.principal import Principal
 from app.core.unit_of_work import UnitOfWork
 from app.repositories.audit_repo import AuditRepo
+from app.repositories.share_link_repo import ShareLinkRepo
 from app.repositories.tenancy_repo import TenancyRepo
 from app.repositories.token_repo import TokenRepo
 from app.repositories.user_repo import UserRepo
 from app.services.audit_service import AuditService
 from app.services.auth_service import AuthService
 from app.services.principal_service import PrincipalService
+from app.services.sharelink_service import ShareLinkService
 from app.services.token_issuer import TokenIssuer
 
 bearer_scheme = HTTPBearer(auto_error=False, scheme_name="BearerAuth")
@@ -226,3 +228,12 @@ def get_auth_service(
 
 
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
+
+
+def get_sharelink_service(
+    session: SessionDep, uow: UowDep, container: ContainerDep
+) -> ShareLinkService:
+    return ShareLinkService(uow, ShareLinkRepo(session), container.clock, container.settings)
+
+
+ShareLinkServiceDep = Annotated[ShareLinkService, Depends(get_sharelink_service)]

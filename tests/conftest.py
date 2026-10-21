@@ -403,3 +403,124 @@ def issue_token(db_session: AsyncSession, clock: MutableClock) -> Callable[..., 
         return raw
 
     return _issue
+
+
+# --- role clients ---------------------------------------------------------------------------
+
+
+class AuthedClient:
+    """httpx client wrapper that adds a bearer token (and optional extra headers) to each call."""
+
+    def __init__(
+        self,
+        client: Any,
+        user: User,
+        token: str,
+        extra_headers: dict[str, str] | None = None,
+        **attrs: Any,
+    ) -> None:
+        self._client = client
+        self.user = user
+        self.token = token
+        self._extra = extra_headers or {}
+        for k, v in attrs.items():
+            setattr(self, k, v)
+
+    def _headers(self, headers: dict[str, str] | None) -> dict[str, str]:
+        base = {"Authorization": f"Bearer {self.token}", **self._extra}
+        return {**base, **(headers or {})}
+
+    async def request(self, method: str, url: str, **kw: Any) -> Any:
+        kw["headers"] = self._headers(kw.get("headers"))
+        return await self._client.request(method, url, **kw)
+
+    async def get(self, url: str, **kw: Any) -> Any:
+        return await self.request("GET", url, **kw)
+
+    async def post(self, url: str, **kw: Any) -> Any:
+        return await self.request("POST", url, **kw)
+
+    async def put(self, url: str, **kw: Any) -> Any:
+        return await self.request("PUT", url, **kw)
+
+    async def patch(self, url: str, **kw: Any) -> Any:
+        return await self.request("PATCH", url, **kw)
+
+    async def delete(self, url: str, **kw: Any) -> Any:
+        return await self.request("DELETE", url, **kw)
+
+    def with_headers(self, **headers: str) -> "AuthedClient":
+        clone = AuthedClient(self._client, self.user, self.token, {**self._extra, **headers})
+        clone.__dict__.update({k: v for k, v in self.__dict__.items() if k not in clone.__dict__})
+        return clone
+
+
+@pytest.fixture
+def client_for(client: Any, token_for: Callable[..., str]) -> Callable[..., AuthedClient]:
+    def _make(user: User, **attrs: Any) -> AuthedClient:
+        return AuthedClient(client, user, token_for(user), **attrs)
+
+    return _make
+
+
+@pytest_asyncio.fixture
+async def trainer_client(make_trainer: Callable[..., Any], client_for: Callable[..., Any]) -> Any:
+    return client_for(await make_trainer())
+
+
+@pytest_asyncio.fixture
+async def player_client(
+    make_player: Callable[..., Any], client_for: Callable[..., Any], db_session: AsyncSession
+) -> Any:
+    profile = await make_player()
+    user = await db_session.get(User, profile.owner_user_id)
+    return client_for(user, profile=profile)
+
+
+@pytest_asyncio.fixture
+async def coach_client(make_coach: Callable[..., Any], client_for: Callable[..., Any]) -> Any:
+    coach = await make_coach()
+    return client_for(coach)
+
+
+@pytest_asyncio.fixture
+async def admin_client(make_user: Callable[..., Any], client_for: Callable[..., Any]) -> Any:
+    return client_for(await make_user(role="super_admin"))
+
+
+@pytest.fixture
+def make_child(make_user: Callable[..., Any], db_session: AsyncSession) -> Callable[..., Any]:
+    """A dependent profile owned by ``parent`` with its own child login (verified, active)."""
+
+    async def _make(parent: User, **kw: Any) -> tuple[User, PlayerProfile]:
+        from datetime import date
+
+        child = await make_user(role="player", first_name="Kid", **kw)
+        profile = PlayerProfile(
+            owner_user_id=parent.id,
+            login_user_id=child.id,
+            display_name="Kid",
+            birth_date=date(2014, 1, 1),
+            gender="other",
+            is_dependent=True,
+        )
+        db_session.add(profile)
+        await db_session.commit()
+        return child, profile
+
+    return _make
+
+
+@pytest_asyncio.fixture
+async def child_client(
+    player_client: Any, make_child: Callable[..., Any], client_for: Callable[..., Any]
+) -> Any:
+    child, profile = await make_child(player_client.user)
+    return client_for(child, profile=profile, parent=player_client.user)
+
+
+@pytest_asyncio.fixture(params=["player", "coach", "admin"])
+async def non_trainer_client(
+    request: Any, player_client: Any, coach_client: Any, admin_client: Any
+) -> Any:
+    return {"player": player_client, "coach": coach_client, "admin": admin_client}[request.param]

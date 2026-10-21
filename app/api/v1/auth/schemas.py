@@ -32,3 +32,11 @@ class LoginRequest(StrictModel):
 
 class LoginResponse(TokenPair):
     user: UserSummary
+
+
+class RefreshRequest(StrictModel):
+    refresh_token: str = Field(min_length=20, max_length=256)
+
+
+class LogoutRequest(StrictModel):
+    refresh_token: str = Field(max_length=256)

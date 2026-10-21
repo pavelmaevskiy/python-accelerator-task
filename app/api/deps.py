@@ -14,6 +14,7 @@ from app.core.enums import UserRole
 from app.core.errors import AuthenticationError, PermissionDeniedError
 from app.core.principal import Principal
 from app.core.unit_of_work import UnitOfWork
+from app.repositories.audit_repo import AuditRepo
 from app.repositories.tenancy_repo import TenancyRepo
 from app.repositories.token_repo import TokenRepo
 from app.repositories.user_repo import UserRepo
@@ -198,11 +199,29 @@ def get_token_issuer(session: SessionDep, container: ContainerDep) -> TokenIssue
 TokenIssuerDep = Annotated[TokenIssuer, Depends(get_token_issuer)]
 
 
+def get_audit_service(session: SessionDep, container: ContainerDep) -> AuditService:
+    return AuditService(container.sessionmaker, AuditRepo(session))
+
+
+AuditServiceDep = Annotated[AuditService, Depends(get_audit_service)]
+
+
 def get_auth_service(
-    session: SessionDep, uow: UowDep, issuer: TokenIssuerDep, container: ContainerDep
+    session: SessionDep,
+    uow: UowDep,
+    issuer: TokenIssuerDep,
+    audit: AuditServiceDep,
+    container: ContainerDep,
 ) -> AuthService:
     return AuthService(
-        uow, UserRepo(session), issuer, container.hasher, container.clock, container.rate_limiter
+        uow=uow,
+        users=UserRepo(session),
+        tokens=TokenRepo(session),
+        issuer=issuer,
+        hasher=container.hasher,
+        clock=container.clock,
+        rate_limiter=container.rate_limiter,
+        audit=audit,
     )
 
 

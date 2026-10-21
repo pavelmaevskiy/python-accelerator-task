@@ -80,12 +80,14 @@ def _service(
 ) -> tuple[AuthService, FakeIssuer, MutableClock]:
     issuer, clock = FakeIssuer(), MutableClock(datetime(2026, 10, 21, tzinfo=UTC))
     service = AuthService(
-        FakeUow(),  # type: ignore[arg-type]
-        FakeUsers(user),  # type: ignore[arg-type]
-        issuer,  # type: ignore[arg-type]
-        hasher,  # type: ignore[arg-type]
-        clock,
-        limiter or FakeLimiter(),  # type: ignore[arg-type]
+        uow=FakeUow(),  # type: ignore[arg-type]
+        users=FakeUsers(user),  # type: ignore[arg-type]
+        tokens=None,  # type: ignore[arg-type]
+        issuer=issuer,  # type: ignore[arg-type]
+        hasher=hasher,  # type: ignore[arg-type]
+        clock=clock,
+        rate_limiter=limiter or FakeLimiter(),  # type: ignore[arg-type]
+        audit=None,  # type: ignore[arg-type]
     )
     return service, issuer, clock
 

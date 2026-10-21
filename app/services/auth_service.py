@@ -1,14 +1,18 @@
 """Credentials and token lifecycle: login, refresh, logout, verification, password reset."""
 
+import uuid
+
 import anyio.to_thread
 
 from app.core.clock import Clock
 from app.core.enums import UserStatus
 from app.core.errors import AuthenticationError, PermissionDeniedError
 from app.core.rate_limit import RateLimiter
-from app.core.security import PasswordHasher
+from app.core.security import PasswordHasher, hash_token
 from app.core.unit_of_work import UnitOfWork
+from app.repositories.token_repo import TokenRepo
 from app.repositories.user_repo import UserRepo
+from app.services.audit_service import AuditService
 from app.services.token_issuer import TokenIssuer
 from app.services.views import AccountView, IssuedTokens, account_view
 
@@ -28,14 +32,18 @@ class AuthService:
         self,
         uow: UnitOfWork,
         users: UserRepo,
+        tokens: TokenRepo,
         issuer: TokenIssuer,
         hasher: PasswordHasher,
         clock: Clock,
         rate_limiter: RateLimiter,
+        audit: AuditService,
     ) -> None:
         self._uow = uow
         self._users = users
+        self._tokens = tokens
         self._issuer = issuer
+        self._audit = audit
         self._hasher = hasher
         self._clock = clock
         self._rate_limiter = rate_limiter
@@ -62,3 +70,39 @@ class AuthService:
                 user.id, user.role, family_id=None, ip_hash=ip_hash, ua_hash=ua_hash
             )
             return LoginResult(tokens, account_view(user, profile))
+
+    async def refresh(self, token: str, *, ip_hash: str, ua_hash: str) -> IssuedTokens:
+        """Rotate a refresh token. Presenting an already-consumed token revokes the family."""
+        now = self._clock.now()
+        reused: tuple[uuid.UUID, uuid.UUID] | None = None
+        async with self._uow:
+            row = await self._tokens.get_refresh_by_hash(hash_token(token), for_update=True)
+            if row is None or row.revoked_at is not None or row.expires_at <= now:
+                raise AuthenticationError("REFRESH_INVALID", "Refresh token is invalid")
+            if row.consumed_at is not None:
+                await self._tokens.revoke_family(row.family_id, now=now)
+                reused = (row.user_id, row.family_id)
+            else:
+                user = await self._users.get_by_id(row.user_id)
+                if user is None or user.status != UserStatus.ACTIVE:
+                    raise AuthenticationError("ACCOUNT_INACTIVE", "Account is not active")
+                await self._tokens.mark_consumed(row, now=now)
+                return await self._issuer.issue_pair(
+                    user.id, user.role, family_id=row.family_id, ip_hash=ip_hash, ua_hash=ua_hash
+                )
+        # Reuse path: the family revocation above is committed; the audit row goes in its own tx.
+        assert reused is not None  # noqa: S101
+        await self._audit.record_isolated(
+            actor_user_id=reused[0],
+            action="refresh_reuse",
+            target_type="refresh_family",
+            target_id=reused[1],
+        )
+        raise AuthenticationError("REFRESH_REUSE_DETECTED", "Refresh token reuse detected")
+
+    async def logout(self, user_id: uuid.UUID, token: str) -> None:
+        """Revoke the token's family if it belongs to the caller. Always succeeds."""
+        async with self._uow:
+            row = await self._tokens.get_refresh_by_hash(hash_token(token))
+            if row is not None and row.user_id == user_id:
+                await self._tokens.revoke_family(row.family_id, now=self._clock.now())

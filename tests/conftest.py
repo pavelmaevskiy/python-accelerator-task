@@ -6,8 +6,9 @@ dedicated Redis db; every table is truncated and Redis flushed after each test.
 
 import os
 from collections.abc import AsyncIterator, Callable, Iterator
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import pytest_asyncio
@@ -321,3 +322,59 @@ def auth(token_for: Callable[..., str]) -> Callable[..., dict[str, str]]:
         return {"Authorization": f"Bearer {token_for(user, **kw)}"}
 
     return _headers
+
+
+# --- auth helpers ---------------------------------------------------------------------------
+
+
+@dataclass
+class LoggedIn:
+    user: User
+    access_token: str
+    refresh_token: str
+
+    @property
+    def headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self.access_token}"}
+
+
+@pytest.fixture
+def login_as(client: Any) -> Callable[..., Any]:
+    async def _login(user: User, password: str = TEST_PASSWORD) -> LoggedIn:
+        r = await client.post(
+            "/api/v1/auth/login", json={"email": user.email, "password": password}
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        return LoggedIn(user, body["access_token"], body["refresh_token"])
+
+    return _login
+
+
+@pytest_asyncio.fixture
+async def logged_in(make_user: Callable[..., Any], login_as: Callable[..., Any]) -> LoggedIn:
+    return cast(LoggedIn, await login_as(await make_user()))
+
+
+@pytest.fixture
+def audit_rows(db_session: AsyncSession) -> Callable[..., Any]:
+    from sqlalchemy import func, select
+
+    from app.models.admin import AuditLog
+
+    async def _count(*, action: str) -> int:
+        stmt = select(func.count()).select_from(AuditLog).where(AuditLog.action == action)
+        return int((await db_session.execute(stmt)).scalar_one())
+
+    return _count
+
+
+@pytest.fixture
+def deactivate(db_session: AsyncSession) -> Callable[..., Any]:
+    from sqlalchemy import update
+
+    async def _deactivate(user: User) -> None:
+        await db_session.execute(update(User).where(User.id == user.id).values(status="inactive"))
+        await db_session.commit()
+
+    return _deactivate

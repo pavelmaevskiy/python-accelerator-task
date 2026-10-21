@@ -42,6 +42,13 @@ from app.services.upload_service import UploadService
 from app.services.user_service import UserService
 
 bearer_scheme = HTTPBearer(auto_error=False, scheme_name="BearerAuth")
+TrainerContextHeader = Annotated[
+    uuid.UUID | None,
+    Header(
+        alias="X-Trainer-Context",
+        description="Player's selected trainer; must match an active trainer-player link.",
+    ),
+]
 
 RATE_LIMITS: dict[str, tuple[int, int]] = {  # name -> (limit, window seconds), per IP
     "login": (10, 60),
@@ -121,7 +128,7 @@ async def current_principal(
     response: Response,
     container: ContainerDep,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
-    x_trainer_context: Annotated[uuid.UUID | None, Header()] = None,
+    x_trainer_context: TrainerContextHeader = None,
 ) -> Principal:
     if credentials is None:
         raise AuthenticationError("NOT_AUTHENTICATED", "Authentication required")
@@ -133,7 +140,7 @@ async def optional_principal(
     response: Response,
     container: ContainerDep,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
-    x_trainer_context: Annotated[uuid.UUID | None, Header()] = None,
+    x_trainer_context: TrainerContextHeader = None,
 ) -> Principal | None:
     """``None`` when no Authorization header is sent; a malformed one is still 401."""
     if credentials is None:

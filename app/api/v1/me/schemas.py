@@ -2,7 +2,7 @@ from datetime import time
 from typing import Any, Literal, Self
 from uuid import UUID
 
-from pydantic import EmailStr, Field, model_validator
+from pydantic import ConfigDict, EmailStr, Field, model_validator
 
 from app.api.schemas import ORMModel, StrictModel, Timezone
 from app.core.enums import UserRole, UserStatus
@@ -76,6 +76,23 @@ class AvailabilityWindowIn(StrictModel):
 
 
 class ReplaceAvailability(StrictModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "windows": [
+                        {
+                            "weekday": 1,
+                            "start_time": "16:00",
+                            "end_time": "18:00",
+                            "is_available": True,
+                        }
+                    ]
+                }
+            ]
+        }
+    )
+
     windows: list[AvailabilityWindowIn] = Field(max_length=100)
 
 

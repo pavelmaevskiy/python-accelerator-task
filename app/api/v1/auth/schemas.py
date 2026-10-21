@@ -2,7 +2,7 @@ from datetime import date
 from typing import Literal
 from uuid import UUID
 
-from pydantic import EmailStr, Field
+from pydantic import ConfigDict, EmailStr, Field
 
 from app.api.schemas import ORMModel, Password, StrictModel, Timezone
 from app.core.enums import UserRole, UserStatus
@@ -27,6 +27,12 @@ class UserSummary(ORMModel):
 
 
 class LoginRequest(StrictModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [{"email": "ann@example.com", "password": "correct horse battery staple"}]
+        }
+    )
+
     email: EmailStr
     password: str = Field(min_length=1, max_length=128)
 
@@ -61,6 +67,21 @@ class PasswordResetConfirm(StrictModel):
 
 
 class RegisterRequest(StrictModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "email": "ann@example.com",
+                    "password": "tr1cky-Horse-staple-9",
+                    "first_name": "Ann",
+                    "last_name": "Lee",
+                    "birth_date": "1990-04-02",
+                    "timezone": "Europe/Warsaw",
+                }
+            ]
+        }
+    )
+
     email: EmailStr = Field(max_length=255)
     password: Password
     first_name: str = Field(min_length=1, max_length=100)

@@ -2,7 +2,7 @@ from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import Field
+from pydantic import ConfigDict, Field
 
 from app.api.schemas import ORMModel, StrictModel
 from app.core.enums import Gender, SkillLevel
@@ -48,6 +48,19 @@ class PlayerResponse(ORMModel):
 
 
 class CreatePlayer(StrictModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "display_name": "Sam",
+                    "birth_date": "2015-03-04",
+                    "gender": "male",
+                    "trainer_ids": [],
+                }
+            ]
+        }
+    )
+
     display_name: str = Field(min_length=1, max_length=100)
     birth_date: date = Field(gt=date(1900, 1, 1))
     gender: Gender

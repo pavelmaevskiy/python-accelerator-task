@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal, Self
 from uuid import UUID
 
-from pydantic import AnyHttpUrl, EmailStr, Field, model_validator
+from pydantic import AnyHttpUrl, ConfigDict, EmailStr, Field, model_validator
 
 from app.api.schemas import CursorParams, HexColor, ORMModel, StrictModel
 from app.core.enums import ShareLinkKind
@@ -22,6 +22,12 @@ class ShareLinkResponse(ORMModel):
 
 
 class CreateShareLink(StrictModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [{"kind": "coach_unique", "target_email": "coach@example.com"}]
+        }
+    )
+
     kind: Literal["player_static", "coach_unique"]
     target_email: EmailStr | None = None  # required for coach_unique, forbidden for player_static
 

@@ -2,7 +2,7 @@ from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import EmailStr, Field
+from pydantic import ConfigDict, EmailStr, Field
 
 from app.api.schemas import CursorParams, ORMModel, Slug, StrictModel
 from app.api.v1.auth.schemas import UserSummary
@@ -46,6 +46,20 @@ class AdminUpdateUser(StrictModel):
 
 
 class ProvisionTrainer(StrictModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "email": "tia@example.com",
+                    "first_name": "Tia",
+                    "last_name": "Lee",
+                    "business_name": "Tia Tennis",
+                    "slug": "tia-tennis",
+                }
+            ]
+        }
+    )
+
     email: EmailStr = Field(max_length=255)
     first_name: str = Field(min_length=1, max_length=100)
     last_name: str = Field(min_length=1, max_length=100)

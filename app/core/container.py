@@ -8,6 +8,7 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.core.clock import Clock, SystemClock
+from app.core.commitments import CommitmentChecker, NoCommitments
 from app.core.config import Settings
 from app.core.rate_limit import RateLimiter
 from app.core.security import PasswordHasher, TokenCodec
@@ -28,6 +29,7 @@ class Container:
     queue: JobQueue
     rate_limiter: RateLimiter
     storage: ObjectStorage
+    commitments: CommitmentChecker
 
 
 @asynccontextmanager
@@ -52,6 +54,7 @@ async def build_container(settings: Settings) -> AsyncIterator[Container]:
             queue=ArqJobQueue(arq_pool),
             rate_limiter=RateLimiter(redis),
             storage=S3ObjectStorage(settings.s3_bucket, settings.media_base_url),
+            commitments=NoCommitments(),
         )
     finally:
         await arq_pool.aclose()

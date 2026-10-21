@@ -260,6 +260,13 @@ def fake_queue() -> FakeQueue:
 
 
 @pytest.fixture
+def commitments() -> Any:
+    from app.core.commitments import NoCommitments
+
+    return NoCommitments()
+
+
+@pytest.fixture
 def fake_storage() -> FakeObjectStorage:
     return FakeObjectStorage()
 
@@ -273,6 +280,7 @@ async def container(
     clock: MutableClock,
     fake_queue: FakeQueue,
     fake_storage: FakeObjectStorage,
+    commitments: Any,
 ) -> Any:
     from app.core.container import Container
     from app.core.rate_limit import RateLimiter
@@ -289,6 +297,7 @@ async def container(
         queue=fake_queue,
         rate_limiter=RateLimiter(redis),
         storage=fake_storage,
+        commitments=commitments,
     )
 
 
@@ -615,3 +624,24 @@ def make_dependent(db_session: AsyncSession) -> Callable[..., Any]:
         return profile
 
     return _make
+
+
+class BusyChecker:
+    """CommitmentChecker that reports the given RSVP ids as blocking."""
+
+    def __init__(self, ids: list[Any]) -> None:
+        self.ids = ids
+        self.calls: list[tuple[Any, Any]] = []
+
+    async def active_for_player(self, player_profile_id: Any, trainer_id: Any) -> list[Any]:
+        self.calls.append((player_profile_id, trainer_id))
+        return list(self.ids)
+
+
+@pytest.fixture
+def busy_checker(container: Any) -> BusyChecker:
+    from uuid import uuid4
+
+    checker = BusyChecker([uuid4(), uuid4()])
+    container.commitments = checker
+    return checker

@@ -24,6 +24,7 @@ from app.repositories.user_repo import UserRepo
 from app.services.audit_service import AuditService
 from app.services.auth_service import AuthService
 from app.services.availability_service import AvailabilityService
+from app.services.player_service import PlayerService
 from app.services.principal_service import PrincipalService
 from app.services.registration_service import RegistrationService
 from app.services.sharelink_service import ShareLinkService
@@ -303,3 +304,17 @@ def get_availability_service(session: SessionDep, uow: UowDep) -> AvailabilitySe
 
 
 AvailabilityServiceDep = Annotated[AvailabilityService, Depends(get_availability_service)]
+
+
+def get_player_service(session: SessionDep, uow: UowDep, container: ContainerDep) -> PlayerService:
+    return PlayerService(
+        uow,
+        ProfileRepo(session),
+        TenancyRepo(session),
+        container.clock,
+        container.commitments,
+        container.storage,
+    )
+
+
+PlayerServiceDep = Annotated[PlayerService, Depends(get_player_service)]

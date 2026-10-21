@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import EmailStr, Field
 
 from app.api.schemas import CursorParams, ORMModel, Slug, StrictModel
+from app.api.v1.auth.schemas import UserSummary
 from app.core.enums import UserRole, UserStatus
 
 PHONE_PATTERN = r"^\+[1-9]\d{6,14}$"
@@ -59,3 +60,17 @@ class ProvisionTrainerResponse(ORMModel):
     business_name: str
     slug: str
     status: Literal["pending"]
+
+
+class ImpersonateRequest(StrictModel):
+    reason: str | None = Field(None, max_length=500)
+
+
+class ImpersonateResponse(ORMModel):
+    """Access token only: by decision O4/D3 no refresh token is issued for impersonation."""
+
+    access_token: str
+    token_type: Literal["bearer"] = "bearer"  # noqa: S105
+    expires_in: int  # seconds; the session is capped at 60 minutes
+    expires_at: datetime
+    target: UserSummary

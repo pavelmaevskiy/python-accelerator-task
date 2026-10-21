@@ -18,6 +18,7 @@ from app.repositories.approval_repo import ApprovalRepo
 from app.repositories.audit_repo import AuditRepo
 from app.repositories.availability_repo import AvailabilityRepo
 from app.repositories.idempotency_repo import IdempotencyRepo
+from app.repositories.impersonation_repo import ImpersonationRepo
 from app.repositories.profile_repo import ProfileRepo
 from app.repositories.share_link_repo import ShareLinkRepo
 from app.repositories.tenancy_repo import TenancyRepo
@@ -29,6 +30,7 @@ from app.services.audit_service import AuditService
 from app.services.auth_service import AuthService
 from app.services.availability_service import AvailabilityService
 from app.services.branding_service import BrandingService
+from app.services.impersonation_service import ImpersonationService
 from app.services.player_service import PlayerService
 from app.services.principal_service import PrincipalService
 from app.services.registration_service import RegistrationService
@@ -371,3 +373,14 @@ def get_admin_user_service(
 
 
 AdminUserServiceDep = Annotated[AdminUserService, Depends(get_admin_user_service)]
+
+
+def get_impersonation_service(
+    session: SessionDep, uow: UowDep, audit: AuditServiceDep, container: ContainerDep
+) -> ImpersonationService:
+    return ImpersonationService(
+        uow, UserRepo(session), ImpersonationRepo(session), audit, container.codec, container.clock
+    )
+
+
+ImpersonationServiceDep = Annotated[ImpersonationService, Depends(get_impersonation_service)]

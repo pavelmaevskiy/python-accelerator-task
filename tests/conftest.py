@@ -754,3 +754,15 @@ async def seeded_users(
         "t1": t1, "t2": t2, "coach": coach, "p1": p1, "p2": p2, "inactive": inactive,
         "admin": admin, "order": [getattr(u, "id", u) for u in everyone],
     }  # fmt: skip
+
+
+@pytest_asyncio.fixture
+async def impersonated_client(admin_client: Any, make_user: Callable[..., Any], client: Any) -> Any:
+    """An AuthedClient holding an impersonation token for a fresh active player."""
+    target = await make_user(role="player", email="victim@x.co")
+    r = await admin_client.post(
+        f"/api/v1/admin/users/{target.id}/impersonate", json={"reason": "support"}
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    return AuthedClient(client, target, body["access_token"], admin=admin_client.user, body=body)

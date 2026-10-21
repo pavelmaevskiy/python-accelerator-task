@@ -64,6 +64,7 @@ async def test_every_job_is_registered_for_the_worker() -> None:
         "send_approval_notification",
         "delete_s3_object",
         "expire_purchase_approvals",
+        "expire_impersonation_sessions",
     }
 
 

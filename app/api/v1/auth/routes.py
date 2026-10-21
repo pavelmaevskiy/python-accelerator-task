@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Query, Response
 from app.api.deps import (
     AuthServiceDep,
     FingerprintDep,
+    ImpersonationServiceDep,
     OptionalPrincipalDep,
     PrincipalDep,
     RegistrationServiceDep,
@@ -186,3 +187,14 @@ async def register(
         verification_required=result.verification_required,
         linked_trainer_id=result.linked_trainer_id,
     )
+
+
+@router.post(
+    "/impersonation/exit",
+    status_code=204,
+    summary="End the current impersonation session",
+    responses=error_responses(401, 403),
+)
+async def exit_impersonation(principal: PrincipalDep, service: ImpersonationServiceDep) -> Response:
+    await service.exit(principal)
+    return Response(status_code=204)

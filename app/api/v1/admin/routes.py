@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Query
 
 from app.api.deps import (
     AdminUserServiceDep,
+    ImpersonationServiceDep,
     PrincipalDep,
     default_rate_limit,
     reject_impersonation,
@@ -16,9 +17,12 @@ from app.api.v1.admin.schemas import (
     AdminUpdateUser,
     AdminUserFilter,
     AdminUserResponse,
+    ImpersonateRequest,
+    ImpersonateResponse,
     ProvisionTrainer,
     ProvisionTrainerResponse,
 )
+from app.api.v1.auth.schemas import UserSummary
 from app.core.enums import UserRole
 from app.repositories.user_repo import UserFilter
 from app.services.admin_user_service import ProvisionTrainerInput
@@ -130,3 +134,24 @@ async def reactivate_user(
     user_id: uuid.UUID, principal: PrincipalDep, service: AdminUserServiceDep
 ) -> AdminUserResponse:
     return AdminUserResponse.model_validate(await service.reactivate(principal, user_id))
+
+
+@router.post(
+    "/users/{user_id}/impersonate",
+    response_model=ImpersonateResponse,
+    summary="Impersonate a user for up to 60 minutes (access token only, no refresh token)",
+    responses=error_responses(403, 404, 409, 422),
+)
+async def impersonate_user(
+    user_id: uuid.UUID,
+    principal: PrincipalDep,
+    service: ImpersonationServiceDep,
+    payload: ImpersonateRequest | None = None,
+) -> ImpersonateResponse:
+    result = await service.start(principal, user_id, payload.reason if payload else None)
+    return ImpersonateResponse(
+        access_token=result.access_token,
+        expires_in=result.expires_in,
+        expires_at=result.expires_at,
+        target=UserSummary.model_validate(result.target),
+    )

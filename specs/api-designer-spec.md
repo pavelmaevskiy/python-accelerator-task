@@ -394,7 +394,7 @@ class CreatePlayer(StrictModel):
     trainer_ids: list[UUID] = Field(default_factory=list, max_length=20)
 ```
 
-**Status:** 201 `PlayerResponse` · 404 (a `trainer_ids` entry not linked to caller) · 409 `DUPLICATE_PLAYER` · 422 `INVALID_AGE` (exact y/m/d via `Clock`, 1-18, C2) · 422.
+**Status:** 201 `PlayerResponse` · 404 (a `trainer_ids` entry not linked to caller) · 409 `DUPLICATE_PLAYER` · 422 `INVALID_AGE` (exact y/m/d via `Clock`; valid while `1 <= age <= 18`, i.e. 18 is allowed until the 19th birthday, C2) · 422.
 
 ### [TASK-001] GET /me/players/{player_id} (2026-10-21)
 
@@ -668,14 +668,18 @@ class EraseUserRequest(StrictModel):      # JSON body on DELETE (supported by Fa
 class ImpersonateRequest(StrictModel):
     reason: str | None = Field(None, max_length=500)
 
-class ImpersonateResponse(TokenPair):
-    expires_at: datetime                  # <= 60 min
+class ImpersonateResponse(ORMModel):          # NOT a TokenPair: no refresh token exists (D3, O4 resolved)
+    access_token: str
+    token_type: Literal["bearer"] = "bearer"
+    expires_in: int                            # seconds; the whole session, 3600
+    expires_at: datetime                       # <= 60 min
     target: UserSummary
-    # access token carries act=<admin_id>; refresh_token omitted semantically: impersonation refresh is not issued
 ```
 
-**Decision D3:** the epic says "scoped token pair", but impersonation is capped at 60 min and must not be extendable;
-`refresh_token` is returned as an empty-family token that cannot rotate past `expires_at`, and `POST /auth/refresh` with it yields `401 IMPERSONATION_EXPIRED` after expiry (see O4).
+**Decision D3 (O4 resolved by the product owner):** impersonation is capped at 60 min and must not be extendable, so
+**no refresh token is issued**. The access token (`act=<admin_id>`, `jti` = session id) lives for the whole session
+and stays revocable because every request re-checks the `impersonation_sessions` row (`exit` or expiry -> `401
+IMPERSONATION_EXPIRED`). `POST /auth/refresh` has nothing to rotate for impersonation.
 
 **Status:** 200 · 403 `CANNOT_IMPERSONATE_ADMIN` · 403 while already impersonating · 404 · 409 `USER_ERASED` / inactive target.
 
@@ -685,11 +689,11 @@ class ImpersonateResponse(TokenPair):
 
 | Status | Codes |
 |---|---|
-| 401 | `INVALID_CREDENTIALS`, `REFRESH_INVALID`, `REFRESH_REUSE_DETECTED`, `IMPERSONATION_EXPIRED` |
-| 403 | `EMAIL_NOT_VERIFIED`, `CHILD_CANNOT_REDEEM`, `CHILD_CANNOT_CREATE_DEPENDENT`, `LINK_EMAIL_MISMATCH`, `CANNOT_IMPERSONATE_ADMIN`, `NOT_IMPERSONATING`, `ADMIN_FORBIDDEN_WHILE_IMPERSONATING`, `FORBIDDEN` |
+| 401 | `INVALID_CREDENTIALS`, `REFRESH_INVALID`, `REFRESH_REUSE_DETECTED`, `IMPERSONATION_EXPIRED`, `NOT_AUTHENTICATED`, `INVALID_TOKEN`, `ACCOUNT_INACTIVE` |
+| 403 | `EMAIL_NOT_VERIFIED`, `CHILD_CANNOT_REDEEM`, `CHILD_CANNOT_CREATE_DEPENDENT`, `LINK_EMAIL_MISMATCH`, `CANNOT_IMPERSONATE_ADMIN`, `NOT_IMPERSONATING`, `ADMIN_FORBIDDEN_WHILE_IMPERSONATING`, `FORBIDDEN`, `CHILD_FORBIDDEN`, `CHILD_CANNOT_CHANGE_EMAIL` |
 | 404 | `NOT_FOUND`, `SHARE_LINK_INVALID`, `UPLOAD_NOT_FOUND` |
-| 409 | `EMAIL_TAKEN`, `SLUG_TAKEN`, `ACCOUNT_EXISTS`, `DUPLICATE_PLAYER`, `WRONG_LINK_KIND`, `APPROVAL_NOT_PENDING`, `APPROVAL_SUBJECT_UNAVAILABLE`, `ACTIVE_COMMITMENTS`, `ALREADY_ERASED`, `USER_ERASED`, `CAMP_SUBMISSION_UNAVAILABLE` |
-| 422 | `VALIDATION_ERROR`, `INVALID_AGE`, `OVERLAPPING_WINDOWS`, `WEAK_PASSWORD`, `TOKEN_INVALID`, `UPLOAD_INVALID` |
+| 409 | `EMAIL_TAKEN`, `SLUG_TAKEN`, `ACCOUNT_EXISTS`, `DUPLICATE_PLAYER`, `WRONG_LINK_KIND`, `APPROVAL_NOT_PENDING`, `APPROVAL_SUBJECT_UNAVAILABLE`, `ACTIVE_COMMITMENTS`, `ALREADY_ERASED`, `USER_ERASED`, `USER_INACTIVE`, `COACH_ALREADY_ASSIGNED`, `CAMP_SUBMISSION_UNAVAILABLE` |
+| 422 | `VALIDATION_ERROR`, `INVALID_AGE`, `OVERLAPPING_WINDOWS`, `WEAK_PASSWORD`, `TOKEN_INVALID`, `UPLOAD_INVALID`, `INVALID_CURSOR`, `EXACTLY_ONE_SOURCE`, `IDEMPOTENCY_KEY_REUSED` |
 | 429 | `RATE_LIMITED` |
 
 ## Permission matrix (route-level)
@@ -723,7 +727,7 @@ and raw S3 keys are never present in any response.
 
 ## OpenAPI metadata
 
-- `title="Trainer Platform API"`, `version="1.0.0"`, `servers=[{"url": "/api/v1"}]`
+- `title="Trainer Platform API"`, `version="1.0.0"`; no `servers` entry (paths already carry the `/api/v1` prefix, so a server URL would double it)
 - Security scheme `BearerAuth` (HTTP bearer, JWT); public routes override with `security=[]`.
 - Tags with descriptions: `auth`, `me`, `trainer`, `public`, `admin`.
 - `generate_unique_id_function`: `"{tag}_{route.name}"` for stable client SDK names.
@@ -737,6 +741,6 @@ and raw S3 keys are never present in any response.
 | O1 | `PUT` used for availability replace-set and avatar/logo presign although conventions §5 says "no PUT on resources". Kept because Epic-01 §8 names them. Alternative: `PATCH`/`POST .../upload-url` | confirm with conventions owner |
 | O2 | `PUT /trainer/branding/logo` path is new (epic leaves the logo presign path unnamed) | confirm |
 | O3 | Trainer setup token TTL: epic US-01.01 says 24 h, architecture C3 says 7 d (binding here) | confirm |
-| O4 | Impersonation token pair: whether a refresh token is issued at all (D3). Recommended: do not issue one; make `refresh_token` optional in `ImpersonateResponse` | confirm |
+| O4 | Impersonation token pair: whether a refresh token is issued at all (D3). **Resolved: none is issued**; `ImpersonateResponse` has no `refresh_token` field | done |
 | O5 | Registration returns tokens only when mailbox control is proven (D1); client UX must handle `verification_required` | product |
 | O6 | `camp_submission_id` registration depends on Epic-08; stubbed as `409 CAMP_SUBMISSION_UNAVAILABLE` | Epic-08 |

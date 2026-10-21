@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- TASK-001 Epic-01 identity, tenancy and auth API (FastAPI, SQLAlchemy async, Alembic, ARQ): login with constant-time failure path, refresh rotation with reuse detection, email verification, password reset, ShareLink registration with atomic redemption, profile/avatar/email-change, availability, dependents and trainer contexts, purchase approvals with idempotent approve/deny, trainer branding with a cached public projection, admin user directory, trainer provisioning, time-boxed impersonation and GDPR erasure (44 operations, generated OpenAPI with a contract test)
+- Permission-matrix, tenant-isolation, concurrency and no-plaintext-after-erasure test suites (539 tests, services at 90%+ coverage)
+
+### Decisions
+- Impersonation issues an access token only; no refresh token exists for an impersonation session (O4 resolved), so the 60-minute cap cannot be extended
+- Dependent age bound is `1 <= age <= 18` inclusive, by exact date
+
 ### Changed
 - Require Context Summary + Next Steps in the chat (never written into task/spec artifacts) and codify it in AGENTS.md (5b9f95e)
 

@@ -3,7 +3,7 @@ from uuid import UUID
 
 from pydantic import EmailStr, Field
 
-from app.api.schemas import ORMModel, StrictModel
+from app.api.schemas import ORMModel, Password, StrictModel
 from app.core.enums import UserRole, UserStatus
 
 
@@ -48,3 +48,12 @@ class VerifyEmailRequest(StrictModel):
 
 class ResendVerificationRequest(StrictModel):
     email: EmailStr
+
+
+class PasswordResetRequest(StrictModel):
+    email: EmailStr
+
+
+class PasswordResetConfirm(StrictModel):
+    token: str = Field(min_length=20, max_length=256)
+    new_password: Password

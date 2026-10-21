@@ -6,6 +6,8 @@ from app.api.v1.auth.schemas import (
     LoginRequest,
     LoginResponse,
     LogoutRequest,
+    PasswordResetConfirm,
+    PasswordResetRequest,
     RefreshRequest,
     ResendVerificationRequest,
     TokenPair,
@@ -92,3 +94,29 @@ async def resend_verification(
 ) -> Response:
     await service.resend_verification(payload.email)
     return Response(status_code=202)
+
+
+@router.post(
+    "/password-reset/request",
+    status_code=202,
+    summary="Request a password-reset email (always 202)",
+    responses=error_responses(422, 429),
+)
+async def request_password_reset(
+    payload: PasswordResetRequest, service: AuthServiceDep
+) -> Response:
+    await service.request_password_reset(payload.email)
+    return Response(status_code=202)
+
+
+@router.post(
+    "/password-reset/confirm",
+    status_code=204,
+    summary="Set a new password (also completes a trainer invite)",
+    responses=error_responses(422),
+)
+async def confirm_password_reset(
+    payload: PasswordResetConfirm, service: AuthServiceDep
+) -> Response:
+    await service.confirm_password_reset(payload.token, payload.new_password)
+    return Response(status_code=204)

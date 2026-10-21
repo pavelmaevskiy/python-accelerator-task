@@ -8,6 +8,7 @@ import anyio.to_thread
 from app.core.clock import Clock
 from app.core.enums import OneTimeTokenKind, UserStatus
 from app.core.errors import AuthenticationError, DomainValidationError, PermissionDeniedError
+from app.core.password_policy import check_password
 from app.core.rate_limit import RateLimiter
 from app.core.security import PasswordHasher, generate_opaque_token, hash_token
 from app.core.unit_of_work import UnitOfWork
@@ -20,6 +21,8 @@ from app.services.views import AccountView, IssuedTokens, account_view
 LOGIN_EMAIL_LIMIT = (5, 60)  # per email, per minute
 RESEND_EMAIL_LIMIT = (3, 3600)
 VERIFY_TTL = timedelta(hours=48)
+RESET_EMAIL_LIMIT = (5, 3600)
+RESET_TTL = timedelta(hours=1)
 
 
 class LoginResult:
@@ -152,3 +155,51 @@ class AuthService:
                 now=now,
             )
             self._uow.enqueue("send_verification_email", user_id=str(user.id), token=token)
+
+    # --- password reset -------------------------------------------------------------------
+
+    async def request_password_reset(self, email: str) -> None:
+        """Always returns normally (no enumeration)."""
+        limit, window = RESET_EMAIL_LIMIT
+        await self._rate_limiter.hit(
+            f"password_reset:email:{email.lower()}", limit=limit, window_seconds=window
+        )
+        async with self._uow:
+            user = await self._users.get_by_email(email)
+            if user is None or user.status == UserStatus.DELETED:
+                return
+            token = generate_opaque_token()
+            now = self._clock.now()
+            await self._tokens.issue_one_time(
+                user.id,
+                OneTimeTokenKind.PASSWORD_RESET,
+                hash_token(token),
+                now + RESET_TTL,
+                now=now,
+            )
+            self._uow.enqueue("send_password_reset_email", user_id=str(user.id), token=token)
+
+    async def confirm_password_reset(self, token: str, new_password: str) -> None:
+        """Set a new password from a reset or trainer-setup token; revokes every session."""
+        now = self._clock.now()
+        async with self._uow:
+            row = await self._tokens.consume_one_time(
+                hash_token(token),
+                now=now,
+                kinds=[OneTimeTokenKind.PASSWORD_RESET, OneTimeTokenKind.TRAINER_SETUP],
+            )
+            if row is None:
+                raise DomainValidationError("TOKEN_INVALID", "Token is invalid or expired")
+            user = await self._users.get_by_id(row.user_id, for_update=True)
+            profile = await self._users.get_profile(row.user_id)
+            if user is None or profile is None or user.status == UserStatus.DELETED:
+                raise DomainValidationError("TOKEN_INVALID", "Token is invalid or expired")
+            inputs = [user.email.split("@")[0], profile.first_name, profile.last_name]
+            await anyio.to_thread.run_sync(check_password, new_password, inputs)
+            user.password_hash = await anyio.to_thread.run_sync(self._hasher.hash, new_password)
+            user.is_email_verified = True  # the token proves mailbox control
+            if row.kind == OneTimeTokenKind.TRAINER_SETUP:
+                if user.status == UserStatus.PENDING:
+                    user.status = UserStatus.ACTIVE
+                user.must_change_password = False
+            await self._tokens.revoke_all_for_user(user.id, now=now)

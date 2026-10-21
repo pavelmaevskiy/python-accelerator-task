@@ -40,3 +40,11 @@ class RefreshRequest(StrictModel):
 
 class LogoutRequest(StrictModel):
     refresh_token: str = Field(max_length=256)
+
+
+class VerifyEmailRequest(StrictModel):
+    token: str = Field(min_length=20, max_length=256)
+
+
+class ResendVerificationRequest(StrictModel):
+    email: EmailStr

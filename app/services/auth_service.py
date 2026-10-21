@@ -1,14 +1,15 @@
 """Credentials and token lifecycle: login, refresh, logout, verification, password reset."""
 
 import uuid
+from datetime import timedelta
 
 import anyio.to_thread
 
 from app.core.clock import Clock
-from app.core.enums import UserStatus
-from app.core.errors import AuthenticationError, PermissionDeniedError
+from app.core.enums import OneTimeTokenKind, UserStatus
+from app.core.errors import AuthenticationError, DomainValidationError, PermissionDeniedError
 from app.core.rate_limit import RateLimiter
-from app.core.security import PasswordHasher, hash_token
+from app.core.security import PasswordHasher, generate_opaque_token, hash_token
 from app.core.unit_of_work import UnitOfWork
 from app.repositories.token_repo import TokenRepo
 from app.repositories.user_repo import UserRepo
@@ -17,6 +18,8 @@ from app.services.token_issuer import TokenIssuer
 from app.services.views import AccountView, IssuedTokens, account_view
 
 LOGIN_EMAIL_LIMIT = (5, 60)  # per email, per minute
+RESEND_EMAIL_LIMIT = (3, 3600)
+VERIFY_TTL = timedelta(hours=48)
 
 
 class LoginResult:
@@ -106,3 +109,46 @@ class AuthService:
             row = await self._tokens.get_refresh_by_hash(hash_token(token))
             if row is not None and row.user_id == user_id:
                 await self._tokens.revoke_family(row.family_id, now=self._clock.now())
+
+    # --- email verification ---------------------------------------------------------------
+
+    async def verify_email(self, token: str) -> None:
+        """Consume an ``email_verify`` or ``email_change`` token (unknown/expired/used: 422)."""
+        async with self._uow:
+            row = await self._tokens.consume_one_time(
+                hash_token(token),
+                now=self._clock.now(),
+                kinds=[OneTimeTokenKind.EMAIL_VERIFY, OneTimeTokenKind.EMAIL_CHANGE],
+            )
+            if row is None:
+                raise DomainValidationError("TOKEN_INVALID", "Token is invalid or expired")
+            user = await self._users.get_by_id(row.user_id, for_update=True)
+            if user is None or user.status == UserStatus.DELETED:
+                raise DomainValidationError("TOKEN_INVALID", "Token is invalid or expired")
+            if row.kind == OneTimeTokenKind.EMAIL_CHANGE:
+                new_email = (row.payload or {}).get("new_email")
+                if not isinstance(new_email, str):
+                    raise DomainValidationError("TOKEN_INVALID", "Token is invalid or expired")
+                await self._users.set_email(user, new_email)
+            user.is_email_verified = True
+
+    async def resend_verification(self, email: str) -> None:
+        """Always returns normally (no enumeration); enqueues only for an unverified account."""
+        limit, window = RESEND_EMAIL_LIMIT
+        await self._rate_limiter.hit(
+            f"verify_resend:email:{email.lower()}", limit=limit, window_seconds=window
+        )
+        async with self._uow:
+            user = await self._users.get_by_email(email)
+            if user is None or user.is_email_verified or user.status != UserStatus.ACTIVE:
+                return
+            token = generate_opaque_token()
+            now = self._clock.now()
+            await self._tokens.issue_one_time(
+                user.id,
+                OneTimeTokenKind.EMAIL_VERIFY,
+                hash_token(token),
+                now + VERIFY_TTL,
+                now=now,
+            )
+            self._uow.enqueue("send_verification_email", user_id=str(user.id), token=token)

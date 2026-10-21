@@ -5,10 +5,12 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import ColumnElement, Text, and_, cast, exists, func, or_, select, tuple_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.core.enums import LinkStatus, UserRole, UserStatus
+from app.core.errors import ConflictError
 from app.models.identity import (
     CoachMembership,
     PlayerProfile,
@@ -67,6 +69,14 @@ class UserRepo:
         """Case-insensitive (``users.email`` is CITEXT)."""
         stmt = select(User).where(User.email == email)
         return (await self._session.execute(stmt)).scalar_one_or_none()
+
+    async def set_email(self, user: User, email: str) -> None:
+        """Change the email; the CITEXT UNIQUE constraint arbitrates races."""
+        user.email = email
+        try:
+            await self._session.flush()
+        except IntegrityError as exc:
+            raise ConflictError("EMAIL_TAKEN", "Email is already in use") from exc
 
     async def get_profile(self, user_id: uuid.UUID) -> Profile | None:
         stmt = select(Profile).where(Profile.user_id == user_id)

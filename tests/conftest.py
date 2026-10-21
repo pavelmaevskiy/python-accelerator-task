@@ -378,3 +378,28 @@ def deactivate(db_session: AsyncSession) -> Callable[..., Any]:
         await db_session.commit()
 
     return _deactivate
+
+
+@pytest.fixture
+def issue_token(db_session: AsyncSession, clock: MutableClock) -> Callable[..., Any]:
+    """Issue a one-time token directly and return the raw value (as the email would carry it)."""
+    from datetime import timedelta
+
+    from app.core.security import generate_opaque_token, hash_token
+    from app.repositories.token_repo import TokenRepo
+
+    async def _issue(
+        user: User,
+        kind: str,
+        *,
+        ttl: timedelta = timedelta(hours=1),
+        payload: dict[str, object] | None = None,
+    ) -> str:
+        raw = generate_opaque_token()
+        await TokenRepo(db_session).issue_one_time(
+            user.id, kind, hash_token(raw), clock.now() + ttl, payload=payload, now=clock.now()
+        )
+        await db_session.commit()
+        return raw
+
+    return _issue

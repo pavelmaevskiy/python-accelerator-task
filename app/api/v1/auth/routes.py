@@ -7,8 +7,10 @@ from app.api.v1.auth.schemas import (
     LoginResponse,
     LogoutRequest,
     RefreshRequest,
+    ResendVerificationRequest,
     TokenPair,
     UserSummary,
+    VerifyEmailRequest,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -65,3 +67,28 @@ async def logout(
 ) -> Response:
     await service.logout(principal.user_id, payload.refresh_token)
     return Response(status_code=204)
+
+
+@router.post(
+    "/verify-email",
+    status_code=204,
+    summary="Verify an email address (or confirm a pending email change)",
+    responses=error_responses(422),
+)
+async def verify_email(payload: VerifyEmailRequest, service: AuthServiceDep) -> Response:
+    await service.verify_email(payload.token)
+    return Response(status_code=204)
+
+
+@router.post(
+    "/verify-email/resend",
+    status_code=202,
+    dependencies=[Depends(rate_limit("verify_resend"))],
+    summary="Resend the verification email (always 202)",
+    responses=error_responses(422, 429),
+)
+async def resend_verification(
+    payload: ResendVerificationRequest, service: AuthServiceDep
+) -> Response:
+    await service.resend_verification(payload.email)
+    return Response(status_code=202)

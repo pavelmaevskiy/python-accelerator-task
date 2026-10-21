@@ -23,6 +23,7 @@ from app.repositories.share_link_repo import ShareLinkRepo
 from app.repositories.tenancy_repo import TenancyRepo
 from app.repositories.token_repo import TokenRepo
 from app.repositories.user_repo import UserRepo
+from app.services.admin_user_service import AdminUserService
 from app.services.approval_service import ApprovalService
 from app.services.audit_service import AuditService
 from app.services.auth_service import AuthService
@@ -353,3 +354,12 @@ def get_branding_service(
 
 
 BrandingServiceDep = Annotated[BrandingService, Depends(get_branding_service)]
+
+
+def get_admin_user_service(
+    session: SessionDep, uow: UowDep, audit: AuditServiceDep, container: ContainerDep
+) -> AdminUserService:
+    return AdminUserService(uow, UserRepo(session), TokenRepo(session), audit, container.clock)
+
+
+AdminUserServiceDep = Annotated[AdminUserService, Depends(get_admin_user_service)]

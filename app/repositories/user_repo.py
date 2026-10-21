@@ -4,7 +4,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import ColumnElement, Text, and_, cast, exists, func, or_, select, tuple_
+from sqlalchemy import ColumnElement, Select, Text, and_, cast, exists, func, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -103,13 +103,9 @@ class UserRepo:
             return None
         return AuthState(status=row.status, role=row.role, is_email_verified=row.is_email_verified)
 
-    async def list_page(
-        self,
-        flt: UserFilter,
-        cursor: tuple[datetime, uuid.UUID] | None,
-        limit: int,
-    ) -> list[UserRow]:
-        """Keyset page sorted ``created_at desc, id desc``; returns up to ``limit + 1`` rows."""
+    @staticmethod
+    def _rows_select() -> Select[User, Profile, uuid.UUID | None, str | None]:
+        """Users joined with profile and (trainer/coach) tenant."""
         membership = aliased(CoachMembership)
         tenant = aliased(TrainerProfile)
         tenant_id = (
@@ -123,34 +119,58 @@ class UserRepo:
             .scalar_subquery()
         )
         trainer_expr = func.coalesce(tenant_id, coach_trainer_id)
-        stmt = (
+        return (
             select(User, Profile, trainer_expr.label("trainer_id"), tenant.business_name)
             .join(Profile, Profile.user_id == User.id)
             .outerjoin(tenant, tenant.user_id == trainer_expr)
         )
+
+    async def get_row(self, user_id: uuid.UUID) -> UserRow | None:
+        stmt = (
+            self._rows_select().where(User.id == user_id).execution_options(populate_existing=True)
+        )
+        row = (await self._session.execute(stmt)).one_or_none()
+        return None if row is None else UserRow(row[0], row[1], row[2], row[3])
+
+    @classmethod
+    def list_stmt(
+        cls,
+        flt: UserFilter,
+        cursor: tuple[datetime, uuid.UUID] | None,
+        limit: int,
+    ) -> Select[User, Profile, uuid.UUID | None, str | None]:
+        """Keyset page statement sorted ``created_at desc, id desc`` (``limit + 1`` rows)."""
+        stmt = cls._rows_select()
         if flt.role is not None:
             stmt = stmt.where(User.role == flt.role)
         if flt.status is not None:
             stmt = stmt.where(User.status == flt.status)
         if flt.trainer_id is not None:
-            stmt = stmt.where(self._member_of(flt.trainer_id))
+            stmt = stmt.where(cls._member_of(flt.trainer_id))
         if flt.query:
+            # Separate subqueries so each predicate can use its own trigram GIN index.
             pattern = f"%{_escape_like(flt.query)}%"
-            stmt = stmt.where(
+            u2, p2 = aliased(User), aliased(Profile)
+            by_email = select(u2.id).where(cast(u2.email, Text).ilike(pattern, escape="\\"))
+            by_name = select(p2.user_id).where(
                 or_(
-                    cast(User.email, Text).ilike(pattern, escape="\\"),
-                    Profile.first_name.ilike(pattern, escape="\\"),
-                    Profile.last_name.ilike(pattern, escape="\\"),
+                    p2.first_name.ilike(pattern, escape="\\"),
+                    p2.last_name.ilike(pattern, escape="\\"),
                 )
             )
+            stmt = stmt.where(or_(User.id.in_(by_email), User.id.in_(by_name)))
         if cursor is not None:
             stmt = stmt.where(tuple_(User.created_at, User.id) < tuple_(*cursor))
-        stmt = stmt.order_by(User.created_at.desc(), User.id.desc()).limit(limit + 1)
-        result = await self._session.execute(stmt)
-        return [
-            UserRow(user=u, profile=p, trainer_id=tid, business_name=bn)
-            for u, p, tid, bn in result.all()
-        ]
+        return stmt.order_by(User.created_at.desc(), User.id.desc()).limit(limit + 1)
+
+    async def list_page(
+        self,
+        flt: UserFilter,
+        cursor: tuple[datetime, uuid.UUID] | None,
+        limit: int,
+    ) -> list[UserRow]:
+        result = await self._session.execute(self.list_stmt(flt, cursor, limit))
+        return [UserRow(u, p, tid, bn) for u, p, tid, bn in result.all()]
 
     @staticmethod
     def _member_of(trainer_id: uuid.UUID) -> ColumnElement[bool]:

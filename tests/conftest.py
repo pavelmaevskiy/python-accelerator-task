@@ -710,3 +710,47 @@ async def pending(
     kid = await make_dependent(player_client.user)
     trainer = await make_trainer()
     return await make_approval(parent=player_client.user, player=kid, trainer=trainer)
+
+
+@pytest_asyncio.fixture
+async def seeded_users(
+    make_user: Callable[..., Any],
+    make_trainer: Callable[..., Any],
+    make_coach: Callable[..., Any],
+    make_player: Callable[..., Any],
+    link_player: Callable[..., Any],
+    db_session: AsyncSession,
+) -> dict[str, Any]:
+    """Two tenants with coaches/players plus a few unaffiliated users."""
+    from datetime import timedelta
+
+    from sqlalchemy import update
+
+    t1 = await make_trainer(
+        email="t1@x.co", first_name="Tina", slug="club-a", business_name="Club A"
+    )
+    t2 = await make_trainer(
+        email="t2@x.co", first_name="Tom", slug="club-b", business_name="Club B"
+    )
+    coach = await make_coach(trainer=t1, email="coach1@x.co", first_name="Carl")
+    p1 = await make_player(email="p1@x.co", first_name="Pia")
+    p2 = await make_player(email="p2@x.co", first_name="Paul")
+    await link_player(t1, p1)
+    await link_player(t2, p2)
+    inactive = await make_user(email="old@x.co", status="inactive", first_name="Olga")
+    admin = await make_user(role="super_admin", email="root@x.co", first_name="Root")
+    everyone = [t1, t2, coach, p1.owner_user_id, p2.owner_user_id, inactive.id, admin.id]
+    # deterministic, distinct created_at ordering
+    from datetime import UTC, datetime
+
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    for i, u in enumerate(everyone):
+        uid = getattr(u, "id", u)
+        await db_session.execute(
+            update(User).where(User.id == uid).values(created_at=start + timedelta(days=i))
+        )
+    await db_session.commit()
+    return {
+        "t1": t1, "t2": t2, "coach": coach, "p1": p1, "p2": p2, "inactive": inactive,
+        "admin": admin, "order": [getattr(u, "id", u) for u in everyone],
+    }  # fmt: skip

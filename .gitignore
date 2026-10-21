@@ -231,3 +231,10 @@ __marimo__/
 
 # Git worktrees
 .worktrees/
+
+# Project tooling
+.env
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/

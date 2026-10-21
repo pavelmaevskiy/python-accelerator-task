@@ -13,8 +13,14 @@ from app.core.container import Container
 from app.core.enums import UserRole
 from app.core.errors import AuthenticationError, PermissionDeniedError
 from app.core.principal import Principal
+from app.core.unit_of_work import UnitOfWork
+from app.repositories.tenancy_repo import TenancyRepo
+from app.repositories.token_repo import TokenRepo
+from app.repositories.user_repo import UserRepo
 from app.services.audit_service import AuditService
+from app.services.auth_service import AuthService
 from app.services.principal_service import PrincipalService
+from app.services.token_issuer import TokenIssuer
 
 bearer_scheme = HTTPBearer(auto_error=False, scheme_name="BearerAuth")
 
@@ -167,3 +173,37 @@ async def default_rate_limit(principal: PrincipalDep, container: ContainerDep) -
     await container.rate_limiter.hit(
         f"default:{principal.user_id}", limit=limit, window_seconds=window
     )
+
+
+# --- service providers ----------------------------------------------------------------------
+
+
+def get_unit_of_work(session: SessionDep, container: ContainerDep) -> UnitOfWork:
+    return UnitOfWork(session, container.queue)
+
+
+UowDep = Annotated[UnitOfWork, Depends(get_unit_of_work)]
+
+
+def get_token_issuer(session: SessionDep, container: ContainerDep) -> TokenIssuer:
+    return TokenIssuer(
+        container.codec,
+        TokenRepo(session),
+        TenancyRepo(session),
+        container.clock,
+        container.settings,
+    )
+
+
+TokenIssuerDep = Annotated[TokenIssuer, Depends(get_token_issuer)]
+
+
+def get_auth_service(
+    session: SessionDep, uow: UowDep, issuer: TokenIssuerDep, container: ContainerDep
+) -> AuthService:
+    return AuthService(
+        uow, UserRepo(session), issuer, container.hasher, container.clock, container.rate_limiter
+    )
+
+
+AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]

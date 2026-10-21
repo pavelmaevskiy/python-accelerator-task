@@ -68,6 +68,10 @@ class UserRepo:
         stmt = select(User).where(User.email == email)
         return (await self._session.execute(stmt)).scalar_one_or_none()
 
+    async def get_profile(self, user_id: uuid.UUID) -> Profile | None:
+        stmt = select(Profile).where(Profile.user_id == user_id)
+        return (await self._session.execute(stmt)).scalar_one_or_none()
+
     async def get_auth_state(self, user_id: uuid.UUID) -> AuthState | None:
         """One PK lookup used on every authenticated request."""
         row = (

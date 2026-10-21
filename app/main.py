@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.api.errors import register_exception_handlers
+from app.api.v1 import api_router
 from app.core.config import get_settings
 from app.core.container import Container, build_container
 
@@ -25,6 +26,7 @@ def create_app(container: Container | None = None) -> FastAPI:
         app.state.container = container
 
     register_exception_handlers(app)
+    app.include_router(api_router)
 
     @app.get("/health", include_in_schema=False)
     async def health() -> dict[str, str]:

@@ -113,3 +113,42 @@ async def test_expire_purchase_approvals_job_expires_only_overdue_pending_rows(
         ).scalars()
     }
     assert rows == {old.id: "expired", fresh.id: "pending"}
+
+
+async def test_remaining_user_jobs_build_the_expected_links(ctx, sender, make_user) -> None:
+    user = await make_user(email="ann@x.co", first_name="Ann")
+    await jobs.send_welcome_email(ctx, user_id=str(user.id))
+    await jobs.send_password_reset_email(ctx, user_id=str(user.id), token="r1")
+    await jobs.send_trainer_invite_email(ctx, user_id=str(user.id), token="s1")
+    assert [(t, to) for t, to, _ in sender.sent] == [
+        ("welcome", "ann@x.co"),
+        ("password_reset", "ann@x.co"),
+        ("trainer_invite", "ann@x.co"),
+    ]
+    assert sender.sent[1][2]["link"] == "http://app/reset-password?token=r1"
+    assert sender.sent[2][2]["link"] == "http://app/trainer-setup?token=s1"
+
+
+async def test_coach_invite_job_mails_target_email_and_skips_unknown_links(
+    ctx, sender, make_share_link
+) -> None:
+    link = await make_share_link(kind="coach_unique", target_email="coach@x.co")
+    await jobs.send_coach_invite_email(ctx, share_link_id=str(link.id))
+    await jobs.send_coach_invite_email(ctx, share_link_id="00000000-0000-0000-0000-000000000000")
+    [(template, to, context)] = sender.sent
+    assert (template, to) == ("coach_invite", "coach@x.co")
+    assert context["link"] == f"http://app/join/{link.code}" and context["business_name"]
+
+
+async def test_approval_notification_job_mails_the_parent(
+    ctx, sender, make_user, make_trainer, make_dependent, make_approval
+) -> None:
+    parent = await make_user(email="parent@x.co", first_name="Pat")
+    approval = await make_approval(
+        parent=parent, player=await make_dependent(parent), trainer=await make_trainer()
+    )
+    await jobs.send_approval_notification(ctx, approval_id=str(approval.id))
+    await jobs.send_approval_notification(ctx, approval_id="00000000-0000-0000-0000-000000000000")
+    [(template, to, context)] = sender.sent
+    assert (template, to) == ("approval_requested", "parent@x.co")
+    assert context["player_name"] == "Dependent" and context["first_name"] == "Pat"

@@ -50,3 +50,8 @@ python_version = "3.12"
 strict = true
 files = ["app"]
 plugins = ["pydantic.mypy"]
+
+[tool.coverage.run]
+source = ["app"]
+concurrency = ["greenlet", "thread"]  # SQLAlchemy asyncio runs queries in greenlets
+omit = ["app/db/alembic/*"]

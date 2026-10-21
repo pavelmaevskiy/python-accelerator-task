@@ -258,8 +258,13 @@ def upgrade() -> None:
         sa.Column("owner_user_id", sa.UUID(), nullable=False),
         sa.Column("login_user_id", sa.UUID(), nullable=True),
         sa.Column("display_name", sa.String(length=100), nullable=False),
-        sa.Column("birth_date", sa.Date(), nullable=False),
-        sa.Column("gender", sa.Enum("male", "female", "other", name="gender"), nullable=False),
+        sa.Column("birth_date", sa.Date(), nullable=True),
+        sa.Column(
+            "gender",
+            sa.Enum("male", "female", "other", "unspecified", name="gender"),
+            server_default="unspecified",
+            nullable=False,
+        ),
         sa.Column(
             "skill_level",
             sa.Enum("beginner", "intermediate", "advanced", name="skill_level"),
@@ -291,6 +296,10 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint(
             "birth_date > DATE '1900-01-01'", name=op.f("ck_player_profiles_birth_date_after_1900")
+        ),
+        sa.CheckConstraint(
+            "NOT is_dependent OR birth_date IS NOT NULL",
+            name=op.f("ck_player_profiles_dependent_has_birth_date"),
         ),
         sa.ForeignKeyConstraint(
             ["login_user_id"],

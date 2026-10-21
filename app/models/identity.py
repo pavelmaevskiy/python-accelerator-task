@@ -171,8 +171,14 @@ class PlayerProfile(TimestampMixin, Base):
     owner_user_id: Mapped[uuid.UUID] = _fk("users.id")
     login_user_id: Mapped[uuid.UUID | None] = _fk("users.id", nullable=True)
     display_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    birth_date: Mapped[date] = mapped_column(Date, nullable=False)
-    gender: Mapped[Gender] = mapped_column(pg_enum(Gender, "gender"), nullable=False)
+    # Nullable only for the implicit own profile of a self-registered adult (no birth date given).
+    birth_date: Mapped[date | None] = mapped_column(Date)
+    gender: Mapped[Gender] = mapped_column(
+        pg_enum(Gender, "gender"),
+        nullable=False,
+        default=Gender.UNSPECIFIED,
+        server_default=Gender.UNSPECIFIED.value,
+    )
     skill_level: Mapped[SkillLevel | None] = mapped_column(pg_enum(SkillLevel, "skill_level"))
     school: Mapped[str | None] = mapped_column(String(255))
     jersey_number: Mapped[int | None] = mapped_column(Integer)
@@ -190,6 +196,9 @@ class PlayerProfile(TimestampMixin, Base):
 
     __table_args__ = (
         CheckConstraint("birth_date > DATE '1900-01-01'", name="birth_date_after_1900"),
+        CheckConstraint(
+            "NOT is_dependent OR birth_date IS NOT NULL", name="dependent_has_birth_date"
+        ),
         Index("ix_player_profiles_owner", "owner_user_id"),
         Index("ix_player_profiles_login", "login_user_id"),
         Index(

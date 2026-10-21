@@ -50,13 +50,23 @@ def _escape_like(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+def _translate_email_conflict(exc: IntegrityError) -> Exception:
+    if "uq_users_email" in str(exc.orig):
+        return ConflictError("EMAIL_TAKEN", "Email is already in use")
+    return exc
+
+
 class UserRepo:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
     async def add(self, user: User) -> User:
+        """Insert; the CITEXT UNIQUE on email arbitrates concurrent registrations."""
         self._session.add(user)
-        await self._session.flush()
+        try:
+            await self._session.flush()
+        except IntegrityError as exc:
+            raise _translate_email_conflict(exc) from exc
         return user
 
     async def get_by_id(self, user_id: uuid.UUID, *, for_update: bool = False) -> User | None:
@@ -76,7 +86,7 @@ class UserRepo:
         try:
             await self._session.flush()
         except IntegrityError as exc:
-            raise ConflictError("EMAIL_TAKEN", "Email is already in use") from exc
+            raise _translate_email_conflict(exc) from exc
 
     async def get_profile(self, user_id: uuid.UUID) -> Profile | None:
         stmt = select(Profile).where(Profile.user_id == user_id)

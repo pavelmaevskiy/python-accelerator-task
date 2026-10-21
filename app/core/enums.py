@@ -21,6 +21,7 @@ class Gender(StrEnum):
     MALE = "male"
     FEMALE = "female"
     OTHER = "other"
+    UNSPECIFIED = "unspecified"  # self-registered adult profiles carry no gender
 
 
 class SkillLevel(StrEnum):

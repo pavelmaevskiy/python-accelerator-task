@@ -49,3 +49,29 @@ class TenancyRepo:
             TrainerPlayerLink.status == LinkStatus.ACTIVE,
         )
         return (await self._session.execute(stmt)).scalar_one_or_none()
+
+    async def get_link(
+        self, trainer_id: uuid.UUID, player_profile_id: uuid.UUID
+    ) -> TrainerPlayerLink | None:
+        """Link in any status (the pair is UNIQUE)."""
+        stmt = select(TrainerPlayerLink).where(
+            TrainerPlayerLink.trainer_id == trainer_id,
+            TrainerPlayerLink.player_profile_id == player_profile_id,
+        )
+        return (await self._session.execute(stmt)).scalar_one_or_none()
+
+    async def add_link(self, link: TrainerPlayerLink) -> TrainerPlayerLink:
+        self._session.add(link)
+        await self._session.flush()
+        return link
+
+    async def get_active_membership(self, coach_user_id: uuid.UUID) -> CoachMembership | None:
+        stmt = select(CoachMembership).where(
+            CoachMembership.coach_user_id == coach_user_id, CoachMembership.is_active.is_(True)
+        )
+        return (await self._session.execute(stmt)).scalar_one_or_none()
+
+    async def add_membership(self, membership: CoachMembership) -> CoachMembership:
+        self._session.add(membership)
+        await self._session.flush()
+        return membership

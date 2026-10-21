@@ -66,7 +66,7 @@ def _migrated() -> Iterator[None]:
 
 @pytest_asyncio.fixture
 async def engine(_migrated: None) -> AsyncIterator[AsyncEngine]:
-    eng = create_async_engine(get_settings().database_url, poolclass=NullPool)
+    eng = create_async_engine(get_settings().database_url, pool_size=15, max_overflow=10)
     yield eng
     async with eng.begin() as conn:
         tables = (
@@ -524,3 +524,58 @@ async def non_trainer_client(
     request: Any, player_client: Any, coach_client: Any, admin_client: Any
 ) -> Any:
     return {"player": player_client, "coach": coach_client, "admin": admin_client}[request.param]
+
+
+@pytest.fixture
+def make_share_link(
+    make_trainer: Callable[..., Any], db_session: AsyncSession, clock: MutableClock
+) -> Callable[..., Any]:
+    import secrets
+    from datetime import timedelta
+
+    from app.models.identity import ShareLink
+
+    async def _make(
+        *,
+        trainer: User | None = None,
+        kind: str = "player_static",
+        target_email: str | None = None,
+        **overrides: Any,
+    ) -> ShareLink:
+        t = trainer or await make_trainer()
+        is_coach = kind == "coach_unique"
+        link = ShareLink(
+            code=secrets.token_urlsafe(16),
+            trainer_id=t.id,
+            created_by_user_id=t.id,
+            kind=kind,
+            target_email=target_email,
+            expires_at=clock.now() + timedelta(days=7) if is_coach else None,
+            max_uses=1 if is_coach else None,
+            **overrides,
+        )
+        db_session.add(link)
+        await db_session.commit()
+        return link
+
+    return _make
+
+
+@pytest_asyncio.fixture
+async def static_link(make_share_link: Callable[..., Any]) -> Any:
+    return await make_share_link()
+
+
+@pytest_asyncio.fixture
+async def coach_link(make_share_link: Callable[..., Any]) -> Any:
+    return await make_share_link(kind="coach_unique", target_email="coach@x.co")
+
+
+@pytest.fixture
+def db_count(db_session: AsyncSession) -> Callable[..., Any]:
+    from sqlalchemy import func, select
+
+    async def _count(model: Any) -> int:
+        return int((await db_session.execute(select(func.count()).select_from(model))).scalar_one())
+
+    return _count

@@ -15,6 +15,7 @@ from app.core.errors import AuthenticationError, PermissionDeniedError
 from app.core.principal import Principal
 from app.core.unit_of_work import UnitOfWork
 from app.repositories.audit_repo import AuditRepo
+from app.repositories.profile_repo import ProfileRepo
 from app.repositories.share_link_repo import ShareLinkRepo
 from app.repositories.tenancy_repo import TenancyRepo
 from app.repositories.token_repo import TokenRepo
@@ -22,6 +23,7 @@ from app.repositories.user_repo import UserRepo
 from app.services.audit_service import AuditService
 from app.services.auth_service import AuthService
 from app.services.principal_service import PrincipalService
+from app.services.registration_service import RegistrationService
 from app.services.sharelink_service import ShareLinkService
 from app.services.token_issuer import TokenIssuer
 
@@ -31,7 +33,7 @@ RATE_LIMITS: dict[str, tuple[int, int]] = {  # name -> (limit, window seconds), 
     "login": (10, 60),
     "verify_resend": (3, 3600),
     "share_preview": (60, 60),
-    "register": (20, 3600),
+    "register": (300, 60),  # the default unauthenticated limit, per IP
 }
 DEFAULT_PRINCIPAL_LIMIT = (300, 60)
 
@@ -237,3 +239,22 @@ def get_sharelink_service(
 
 
 ShareLinkServiceDep = Annotated[ShareLinkService, Depends(get_sharelink_service)]
+
+
+def get_registration_service(
+    session: SessionDep, uow: UowDep, issuer: TokenIssuerDep, container: ContainerDep
+) -> RegistrationService:
+    return RegistrationService(
+        uow=uow,
+        users=UserRepo(session),
+        profiles=ProfileRepo(session),
+        tenancy=TenancyRepo(session),
+        links=ShareLinkRepo(session),
+        tokens=TokenRepo(session),
+        issuer=issuer,
+        hasher=container.hasher,
+        clock=container.clock,
+    )
+
+
+RegistrationServiceDep = Annotated[RegistrationService, Depends(get_registration_service)]

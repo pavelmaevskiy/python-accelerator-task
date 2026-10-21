@@ -1,6 +1,15 @@
-from fastapi import APIRouter, Depends, Response
+import uuid
 
-from app.api.deps import AuthServiceDep, FingerprintDep, PrincipalDep, rate_limit
+from fastapi import APIRouter, Depends, Query, Response
+
+from app.api.deps import (
+    AuthServiceDep,
+    FingerprintDep,
+    OptionalPrincipalDep,
+    PrincipalDep,
+    RegistrationServiceDep,
+    rate_limit,
+)
 from app.api.responses import error_responses
 from app.api.v1.auth.schemas import (
     LoginRequest,
@@ -9,11 +18,14 @@ from app.api.v1.auth.schemas import (
     PasswordResetConfirm,
     PasswordResetRequest,
     RefreshRequest,
+    RegisterRequest,
+    RegisterResponse,
     ResendVerificationRequest,
     TokenPair,
     UserSummary,
     VerifyEmailRequest,
 )
+from app.services.registration_service import RegistrationInput
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -120,3 +132,57 @@ async def confirm_password_reset(
 ) -> Response:
     await service.confirm_password_reset(payload.token, payload.new_password)
     return Response(status_code=204)
+
+
+@router.post(
+    "/register",
+    response_model=RegisterResponse,
+    status_code=201,
+    dependencies=[Depends(rate_limit("register"))],
+    summary="Register (or add a link to an existing account) via a share link",
+    responses={
+        200: {"model": RegisterResponse, "description": "Existing account: link added"},
+        **error_responses(403, 404, 409, 422, 429),
+    },
+)
+async def register(
+    payload: RegisterRequest,
+    response: Response,
+    service: RegistrationServiceDep,
+    caller: OptionalPrincipalDep,
+    fingerprint: FingerprintDep,
+    share_code: str | None = Query(None, min_length=22, max_length=22),
+    camp_submission_id: uuid.UUID | None = None,
+) -> RegisterResponse:
+    result = await service.register(
+        caller=caller,
+        share_code=share_code,
+        camp_submission_id=camp_submission_id,
+        data=RegistrationInput(
+            email=payload.email,
+            password=payload.password,
+            first_name=payload.first_name,
+            last_name=payload.last_name,
+            phone=payload.phone,
+            timezone=payload.timezone,
+            birth_date=payload.birth_date,
+            player_profile_ids=payload.player_profile_ids,
+        ),
+        ip_hash=fingerprint.ip_hash,
+        ua_hash=fingerprint.ua_hash,
+    )
+    if not result.created:
+        response.status_code = 200
+    tokens = result.tokens
+    return RegisterResponse(
+        user=UserSummary.model_validate(result.account),
+        tokens=None
+        if tokens is None
+        else TokenPair(
+            access_token=tokens.access_token,
+            refresh_token=tokens.refresh_token,
+            expires_in=tokens.expires_in,
+        ),
+        verification_required=result.verification_required,
+        linked_trainer_id=result.linked_trainer_id,
+    )

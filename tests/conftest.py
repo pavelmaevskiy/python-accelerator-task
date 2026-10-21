@@ -527,7 +527,8 @@ def make_child(make_user: Callable[..., Any], db_session: AsyncSession) -> Calla
     async def _make(parent: User, **kw: Any) -> tuple[User, PlayerProfile]:
         from datetime import date
 
-        child = await make_user(role="player", first_name="Kid", **kw)
+        kw.setdefault("first_name", "Kid")
+        child = await make_user(role="player", **kw)
         profile = PlayerProfile(
             owner_user_id=parent.id,
             login_user_id=child.id,
@@ -766,3 +767,29 @@ async def impersonated_client(admin_client: Any, make_user: Callable[..., Any], 
     assert r.status_code == 200, r.text
     body = r.json()
     return AuthedClient(client, target, body["access_token"], admin=admin_client.user, body=body)
+
+
+@pytest_asyncio.fixture
+async def victim(
+    make_player: Callable[..., Any], db_session: AsyncSession, fake_storage: FakeObjectStorage
+) -> Any:
+    """A player with an own profile, an avatar and a distinctive email/name."""
+    from sqlalchemy import update
+
+    profile = await make_player(
+        email="vic.tim9137@x.co", first_name="Zorbaq", last_name="Quillfeather"
+    )
+    user = await db_session.get(User, profile.owner_user_id)
+    from app.models.identity import Profile as ProfileModel
+
+    key = f"avatars/{user.id}/pic.png"
+    fake_storage.seed(key, b"\x89PNG\r\n\x1a\n" + b"0" * 10, "image/png")
+    await db_session.execute(
+        update(ProfileModel)
+        .where(ProfileModel.user_id == user.id)
+        .values(phone="+15559137001", school="Zephyr Academy", avatar_key=key)
+    )
+    await db_session.commit()
+    user.own_profile = profile  # type: ignore[attr-defined]
+    user.avatar_key = key  # type: ignore[attr-defined]
+    return user

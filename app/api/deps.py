@@ -17,6 +17,7 @@ from app.core.unit_of_work import UnitOfWork
 from app.repositories.approval_repo import ApprovalRepo
 from app.repositories.audit_repo import AuditRepo
 from app.repositories.availability_repo import AvailabilityRepo
+from app.repositories.erasure_repo import ErasureRepo
 from app.repositories.idempotency_repo import IdempotencyRepo
 from app.repositories.impersonation_repo import ImpersonationRepo
 from app.repositories.profile_repo import ProfileRepo
@@ -30,6 +31,7 @@ from app.services.audit_service import AuditService
 from app.services.auth_service import AuthService
 from app.services.availability_service import AvailabilityService
 from app.services.branding_service import BrandingService
+from app.services.erasure_service import ErasureService
 from app.services.impersonation_service import ImpersonationService
 from app.services.player_service import PlayerService
 from app.services.principal_service import PrincipalService
@@ -384,3 +386,23 @@ def get_impersonation_service(
 
 
 ImpersonationServiceDep = Annotated[ImpersonationService, Depends(get_impersonation_service)]
+
+
+def get_erasure_service(
+    session: SessionDep, uow: UowDep, audit: AuditServiceDep, container: ContainerDep
+) -> ErasureService:
+    return ErasureService(
+        uow,
+        UserRepo(session),
+        ErasureRepo(session),
+        TokenRepo(session),
+        ImpersonationRepo(session),
+        audit,
+        container.commitments,
+        container.hasher,
+        container.clock,
+        container.redis,
+    )
+
+
+ErasureServiceDep = Annotated[ErasureService, Depends(get_erasure_service)]

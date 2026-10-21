@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
@@ -74,3 +74,10 @@ class ImpersonateResponse(ORMModel):
     expires_in: int  # seconds; the session is capped at 60 minutes
     expires_at: datetime
     target: UserSummary
+
+
+class EraseUserRequest(StrictModel):
+    """JSON body on DELETE (supported by FastAPI and httpx)."""
+
+    reason: str = Field(min_length=3, max_length=500)
+    legal_retention_until: date | None = None

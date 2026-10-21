@@ -1,10 +1,11 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 
 from app.api.deps import (
     AdminUserServiceDep,
+    ErasureServiceDep,
     ImpersonationServiceDep,
     PrincipalDep,
     default_rate_limit,
@@ -17,6 +18,7 @@ from app.api.v1.admin.schemas import (
     AdminUpdateUser,
     AdminUserFilter,
     AdminUserResponse,
+    EraseUserRequest,
     ImpersonateRequest,
     ImpersonateResponse,
     ProvisionTrainer,
@@ -26,6 +28,7 @@ from app.api.v1.auth.schemas import UserSummary
 from app.core.enums import UserRole
 from app.repositories.user_repo import UserFilter
 from app.services.admin_user_service import ProvisionTrainerInput
+from app.services.erasure_service import EraseInput
 
 router = APIRouter(
     prefix="/admin",
@@ -155,3 +158,21 @@ async def impersonate_user(
         expires_at=result.expires_at,
         target=UserSummary.model_validate(result.target),
     )
+
+
+@router.delete(
+    "/users/{user_id}",
+    status_code=204,
+    summary="Erase a user (GDPR): anonymise in place, never delete the row",
+    responses=error_responses(404, 409, 422),
+)
+async def erase_user(
+    user_id: uuid.UUID,
+    payload: EraseUserRequest,
+    principal: PrincipalDep,
+    service: ErasureServiceDep,
+) -> Response:
+    await service.erase_user(
+        principal, user_id, EraseInput(payload.reason, payload.legal_retention_until)
+    )
+    return Response(status_code=204)

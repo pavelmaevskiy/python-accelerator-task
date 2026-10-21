@@ -1,0 +1,169 @@
+"""FastAPI dependencies: container access, DB session, principal, guards, rate limits."""
+
+import hashlib
+import uuid
+from collections.abc import AsyncIterator, Awaitable, Callable
+from typing import Annotated
+
+from fastapi import Depends, Header, Request, Response
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.container import Container
+from app.core.enums import UserRole
+from app.core.errors import AuthenticationError, PermissionDeniedError
+from app.core.principal import Principal
+from app.services.audit_service import AuditService
+from app.services.principal_service import PrincipalService
+
+bearer_scheme = HTTPBearer(auto_error=False, scheme_name="BearerAuth")
+
+RATE_LIMITS: dict[str, tuple[int, int]] = {  # name -> (limit, window seconds), per IP
+    "login": (10, 60),
+    "verify_resend": (3, 3600),
+    "share_preview": (60, 60),
+    "register": (20, 3600),
+}
+DEFAULT_PRINCIPAL_LIMIT = (300, 60)
+
+
+def get_container(request: Request) -> Container:
+    container: Container = request.app.state.container
+    return container
+
+
+ContainerDep = Annotated[Container, Depends(get_container)]
+
+
+async def get_session(container: ContainerDep) -> AsyncIterator[AsyncSession]:
+    async with container.sessionmaker() as session:
+        yield session
+
+
+SessionDep = Annotated[AsyncSession, Depends(get_session)]
+
+
+def client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def hash_with_salt(container: Container, value: str) -> str:
+    return hashlib.sha256(f"{container.settings.ip_hash_salt}:{value}".encode()).hexdigest()
+
+
+class ClientFingerprint:
+    """Salted hashes of IP and user agent; raw values are never stored."""
+
+    def __init__(self, ip_hash: str, ua_hash: str) -> None:
+        self.ip_hash = ip_hash
+        self.ua_hash = ua_hash
+
+
+def get_fingerprint(request: Request, container: ContainerDep) -> ClientFingerprint:
+    ua = request.headers.get("user-agent", "")
+    return ClientFingerprint(
+        hash_with_salt(container, client_ip(request)), hash_with_salt(container, ua)
+    )
+
+
+FingerprintDep = Annotated[ClientFingerprint, Depends(get_fingerprint)]
+
+
+async def _resolve(
+    request: Request,
+    response: Response,
+    container: Container,
+    credentials: HTTPAuthorizationCredentials,
+    trainer_context: uuid.UUID | None,
+) -> Principal:
+    claims = container.codec.decode_access(credentials.credentials)
+    principal = await PrincipalService(container.sessionmaker, container.clock).resolve(
+        claims, trainer_context
+    )
+    if principal.act is not None:
+        response.headers["X-Impersonated-By"] = str(principal.act)
+        await AuditService(container.sessionmaker).record_isolated(
+            actor_user_id=principal.user_id,
+            impersonator_id=principal.act,
+            action="impersonated_request",
+            details={"method": request.method, "path": request.url.path},
+        )
+    return principal
+
+
+async def current_principal(
+    request: Request,
+    response: Response,
+    container: ContainerDep,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+    x_trainer_context: Annotated[uuid.UUID | None, Header()] = None,
+) -> Principal:
+    if credentials is None:
+        raise AuthenticationError("NOT_AUTHENTICATED", "Authentication required")
+    return await _resolve(request, response, container, credentials, x_trainer_context)
+
+
+async def optional_principal(
+    request: Request,
+    response: Response,
+    container: ContainerDep,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+    x_trainer_context: Annotated[uuid.UUID | None, Header()] = None,
+) -> Principal | None:
+    """``None`` when no Authorization header is sent; a malformed one is still 401."""
+    if credentials is None:
+        if request.headers.get("authorization"):
+            raise AuthenticationError("INVALID_TOKEN", "Invalid authorization header")
+        return None
+    return await _resolve(request, response, container, credentials, x_trainer_context)
+
+
+PrincipalDep = Annotated[Principal, Depends(current_principal)]
+OptionalPrincipalDep = Annotated[Principal | None, Depends(optional_principal)]
+
+
+def require_role(*roles: UserRole) -> Callable[[Principal], Awaitable[Principal]]:
+    allowed = frozenset(roles)
+
+    async def _guard(principal: PrincipalDep) -> Principal:
+        if principal.role not in allowed:
+            raise PermissionDeniedError("FORBIDDEN", "You do not have access to this resource")
+        return principal
+
+    return _guard
+
+
+async def reject_impersonation(principal: PrincipalDep) -> None:
+    if principal.is_impersonated:
+        raise PermissionDeniedError(
+            "ADMIN_FORBIDDEN_WHILE_IMPERSONATING", "Not available while impersonating"
+        )
+
+
+async def require_tenant_scope(principal: PrincipalDep) -> uuid.UUID:
+    """Derive ``trainer_id`` from the principal only; never from path, query or body."""
+    if principal.trainer_id is None:
+        raise PermissionDeniedError("FORBIDDEN", "No trainer context")
+    return principal.trainer_id
+
+
+TenantDep = Annotated[uuid.UUID, Depends(require_tenant_scope)]
+
+
+def rate_limit(name: str) -> Callable[..., Awaitable[None]]:
+    """Per-IP limit from ``RATE_LIMITS``. Per-email limits live in the services."""
+    limit, window = RATE_LIMITS[name]
+
+    async def _dep(request: Request, container: ContainerDep) -> None:
+        await container.rate_limiter.hit(
+            f"{name}:ip:{client_ip(request)}", limit=limit, window_seconds=window
+        )
+
+    return _dep
+
+
+async def default_rate_limit(principal: PrincipalDep, container: ContainerDep) -> None:
+    limit, window = DEFAULT_PRINCIPAL_LIMIT
+    await container.rate_limiter.hit(
+        f"default:{principal.user_id}", limit=limit, window_seconds=window
+    )

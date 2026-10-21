@@ -6,7 +6,6 @@ dedicated Redis db; every table is truncated and Redis flushed after each test.
 
 import os
 from collections.abc import AsyncIterator, Callable, Iterator
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +22,6 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import NullPool
 
-from app.core.clock import FixedClock
 from app.core.config import get_settings
 from app.core.enums import UserRole, UserStatus
 from app.core.ids import new_id
@@ -37,6 +35,7 @@ from app.models.identity import (
     TrainerProfile,
     User,
 )
+from tests.fakes import FakeQueue, MutableClock
 
 ROOT = Path(__file__).resolve().parent.parent
 TEST_PASSWORD = "correct horse battery staple"  # noqa: S105
@@ -106,8 +105,8 @@ async def redis() -> AsyncIterator[Any]:
 
 
 @pytest.fixture
-def clock() -> FixedClock:
-    return FixedClock(datetime(2026, 10, 21, 12, 0, tzinfo=UTC))
+def clock() -> MutableClock:
+    return MutableClock()
 
 
 # --- factories (write through the ORM and commit) -------------------------------------------
@@ -228,3 +227,97 @@ def link_player(db_session: AsyncSession) -> Callable[..., Any]:
         return link
 
     return _link
+
+
+# --- application wiring ---------------------------------------------------------------------
+
+
+@pytest.fixture
+def settings() -> Any:
+    from app.core.config import Settings
+
+    return Settings(
+        env="test",
+        jwt_keys={"k1": "k" * 40},
+        jwt_current_kid="k1",
+        ip_hash_salt="test-salt",
+        redis_url=TEST_REDIS_URL,
+        public_base_url="http://testserver",
+    )
+
+
+@pytest.fixture
+def fake_queue() -> FakeQueue:
+    return FakeQueue()
+
+
+@pytest_asyncio.fixture
+async def container(
+    settings: Any,
+    engine: AsyncEngine,
+    sessionmaker_: async_sessionmaker[AsyncSession],
+    redis: Any,
+    clock: MutableClock,
+    fake_queue: FakeQueue,
+) -> Any:
+    from app.core.container import Container
+    from app.core.rate_limit import RateLimiter
+    from app.core.security import TokenCodec
+
+    return Container(
+        settings=settings,
+        engine=engine,
+        sessionmaker=sessionmaker_,
+        redis=redis,
+        hasher=CHEAP_HASHER,
+        codec=TokenCodec(settings.jwt_keys, settings.jwt_current_kid),
+        clock=clock,
+        queue=fake_queue,
+        rate_limiter=RateLimiter(redis),
+    )
+
+
+@pytest.fixture
+def app(container: Any) -> Any:
+    from app.main import create_app
+
+    return create_app(container)
+
+
+@pytest_asyncio.fixture
+async def client(app: Any) -> AsyncIterator[Any]:
+    from httpx import ASGITransport, AsyncClient
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as c:
+        yield c
+
+
+@pytest.fixture
+def token_for(container: Any) -> Callable[..., str]:
+    from datetime import timedelta
+
+    def _token(
+        user: User,
+        *,
+        act: Any = None,
+        jti: str | None = None,
+        ttl: timedelta = timedelta(minutes=15),
+    ) -> str:
+        return container.codec.encode_access(
+            sub=str(user.id),
+            role=user.role.value if hasattr(user.role, "value") else str(user.role),
+            trainer_id=None,
+            ttl=ttl,
+            act=str(act) if act else None,
+            jti=jti,
+        )
+
+    return _token
+
+
+@pytest.fixture
+def auth(token_for: Callable[..., str]) -> Callable[..., dict[str, str]]:
+    def _headers(user: User, **kw: Any) -> dict[str, str]:
+        return {"Authorization": f"Bearer {token_for(user, **kw)}"}
+
+    return _headers

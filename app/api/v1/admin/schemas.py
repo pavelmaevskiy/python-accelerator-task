@@ -1,9 +1,10 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
-from pydantic import Field
+from pydantic import EmailStr, Field
 
-from app.api.schemas import CursorParams, ORMModel, StrictModel
+from app.api.schemas import CursorParams, ORMModel, Slug, StrictModel
 from app.core.enums import UserRole, UserStatus
 
 PHONE_PATTERN = r"^\+[1-9]\d{6,14}$"
@@ -41,3 +42,20 @@ class AdminUpdateUser(StrictModel):
     phone: str | None = Field(None, pattern=PHONE_PATTERN)
     is_email_verified: bool | None = None
     must_change_password: bool | None = None
+
+
+class ProvisionTrainer(StrictModel):
+    email: EmailStr = Field(max_length=255)
+    first_name: str = Field(min_length=1, max_length=100)
+    last_name: str = Field(min_length=1, max_length=100)
+    phone: str | None = Field(None, pattern=PHONE_PATTERN)
+    business_name: str = Field(min_length=1, max_length=255)
+    slug: Slug
+
+
+class ProvisionTrainerResponse(ORMModel):
+    id: UUID
+    email: EmailStr
+    business_name: str
+    slug: str
+    status: Literal["pending"]

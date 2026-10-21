@@ -5,8 +5,10 @@ from collections.abc import Sequence
 from datetime import date, datetime
 
 from sqlalchemy import func, select, tuple_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import ConflictError
 from app.models.identity import CoachProfile, PlayerProfile, Profile, TrainerProfile
 
 
@@ -20,8 +22,14 @@ class ProfileRepo:
         return profile
 
     async def add_trainer_profile(self, profile: TrainerProfile) -> TrainerProfile:
+        """Insert; the UNIQUE slug arbitrates concurrent provisioning."""
         self._session.add(profile)
-        await self._session.flush()
+        try:
+            await self._session.flush()
+        except IntegrityError as exc:
+            if "uq_trainer_profiles_slug" in str(exc.orig):
+                raise ConflictError("SLUG_TAKEN", "Slug is already in use") from exc
+            raise
         return profile
 
     async def add_coach_profile(self, profile: CoachProfile) -> CoachProfile:

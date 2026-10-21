@@ -12,9 +12,16 @@ from app.api.deps import (
 )
 from app.api.responses import error_responses
 from app.api.schemas import Page
-from app.api.v1.admin.schemas import AdminUpdateUser, AdminUserFilter, AdminUserResponse
+from app.api.v1.admin.schemas import (
+    AdminUpdateUser,
+    AdminUserFilter,
+    AdminUserResponse,
+    ProvisionTrainer,
+    ProvisionTrainerResponse,
+)
 from app.core.enums import UserRole
 from app.repositories.user_repo import UserFilter
+from app.services.admin_user_service import ProvisionTrainerInput
 
 router = APIRouter(
     prefix="/admin",
@@ -49,6 +56,30 @@ async def list_users(
         next_cursor=page.next_cursor,
         has_more=page.has_more,
     )
+
+
+@router.post(
+    "/users/trainers",
+    response_model=ProvisionTrainerResponse,
+    status_code=201,
+    summary="Provision a trainer account (pending until the setup link is used)",
+    responses=error_responses(409, 422),
+)
+async def provision_trainer(
+    payload: ProvisionTrainer, principal: PrincipalDep, service: AdminUserServiceDep
+) -> ProvisionTrainerResponse:
+    view = await service.provision_trainer(
+        principal,
+        ProvisionTrainerInput(
+            email=payload.email,
+            first_name=payload.first_name,
+            last_name=payload.last_name,
+            phone=payload.phone,
+            business_name=payload.business_name,
+            slug=payload.slug,
+        ),
+    )
+    return ProvisionTrainerResponse.model_validate(view)
 
 
 @router.get(

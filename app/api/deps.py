@@ -359,7 +359,15 @@ BrandingServiceDep = Annotated[BrandingService, Depends(get_branding_service)]
 def get_admin_user_service(
     session: SessionDep, uow: UowDep, audit: AuditServiceDep, container: ContainerDep
 ) -> AdminUserService:
-    return AdminUserService(uow, UserRepo(session), TokenRepo(session), audit, container.clock)
+    return AdminUserService(
+        uow,
+        UserRepo(session),
+        ProfileRepo(session),
+        TokenRepo(session),
+        audit,
+        container.hasher,
+        container.clock,
+    )
 
 
 AdminUserServiceDep = Annotated[AdminUserService, Depends(get_admin_user_service)]

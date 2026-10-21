@@ -2,18 +2,24 @@
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
+
+import anyio.to_thread
 
 from app.core.clock import Clock
-from app.core.enums import UserRole, UserStatus
+from app.core.enums import OneTimeTokenKind, UserRole, UserStatus
 from app.core.errors import ConflictError, NotFoundError
 from app.core.pagination import PageResult, build_page, decode_cursor
 from app.core.principal import Principal
+from app.core.security import PasswordHasher, generate_opaque_token, hash_token
 from app.core.unit_of_work import UnitOfWork
+from app.models.identity import Profile, TrainerProfile, User
+from app.repositories.profile_repo import ProfileRepo
 from app.repositories.token_repo import TokenRepo
 from app.repositories.user_repo import UserFilter, UserRepo, UserRow
 from app.services.audit_service import AuditService
 
+TRAINER_SETUP_TTL = timedelta(days=7)  # architecture C3 (binding) over the epic's 24 h (O3)
 _EDITABLE_PROFILE = ("first_name", "last_name", "phone")
 _EDITABLE_USER = ("is_email_verified", "must_change_password")
 
@@ -56,19 +62,42 @@ def admin_view(row: UserRow) -> AdminUserView:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class ProvisionTrainerInput:
+    email: str
+    first_name: str
+    last_name: str
+    phone: str | None
+    business_name: str
+    slug: str
+
+
+@dataclass(frozen=True, slots=True)
+class ProvisionedTrainerView:
+    id: uuid.UUID
+    email: str
+    business_name: str
+    slug: str
+    status: UserStatus
+
+
 class AdminUserService:
     def __init__(
         self,
         uow: UnitOfWork,
         users: UserRepo,
+        profiles: ProfileRepo,
         tokens: TokenRepo,
         audit: AuditService,
+        hasher: PasswordHasher,
         clock: Clock,
     ) -> None:
         self._uow = uow
         self._users = users
+        self._profiles = profiles
         self._tokens = tokens
         self._audit = audit
+        self._hasher = hasher
         self._clock = clock
 
     async def _row(self, user_id: uuid.UUID) -> UserRow:
@@ -149,3 +178,55 @@ class AdminUserService:
                     target_id=user_id,
                 )
             return admin_view(row)
+
+    async def provision_trainer(
+        self, admin: Principal, data: ProvisionTrainerInput
+    ) -> ProvisionedTrainerView:
+        """One transaction: user + profile + trainer profile + setup token + audit + invite."""
+        # A random, never-returned password: the trainer sets a real one via the setup link.
+        unusable = await anyio.to_thread.run_sync(self._hasher.hash, generate_opaque_token())
+        token = generate_opaque_token()
+        now = self._clock.now()
+        async with self._uow:
+            user = await self._users.add(
+                User(
+                    email=data.email,
+                    password_hash=unusable,
+                    role=UserRole.TRAINER,
+                    status=UserStatus.PENDING,
+                    must_change_password=True,
+                )
+            )
+            await self._profiles.add_profile(
+                Profile(
+                    user_id=user.id,
+                    first_name=data.first_name,
+                    last_name=data.last_name,
+                    phone=data.phone,
+                )
+            )
+            await self._profiles.add_trainer_profile(
+                TrainerProfile(user_id=user.id, business_name=data.business_name, slug=data.slug)
+            )
+            await self._tokens.issue_one_time(
+                user.id,
+                OneTimeTokenKind.TRAINER_SETUP,
+                hash_token(token),
+                now + TRAINER_SETUP_TTL,
+                now=now,
+            )
+            await self._audit.record(
+                actor_user_id=admin.user_id,
+                action="trainer.created",
+                target_type="user",
+                target_id=user.id,
+                details={"slug": data.slug},
+            )
+            self._uow.enqueue("send_trainer_invite_email", user_id=str(user.id), token=token)
+            return ProvisionedTrainerView(
+                id=user.id,
+                email=user.email,
+                business_name=data.business_name,
+                slug=data.slug,
+                status=user.status,
+            )

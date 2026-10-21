@@ -8,6 +8,7 @@ from app.api.deps import (
     UserServiceDep,
     current_principal,
     default_rate_limit,
+    forbid_child,
     reject_child,
     require_role,
 )
@@ -57,6 +58,9 @@ async def update_me(
 @router.post(
     "/email-change",
     status_code=202,
+    dependencies=[
+        Depends(forbid_child("CHILD_CANNOT_CHANGE_EMAIL", "Child accounts cannot change email"))
+    ],
     summary="Request an email change (confirmed through POST /auth/verify-email)",
     responses=error_responses(401, 403, 409, 422),
 )

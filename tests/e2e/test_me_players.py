@@ -132,7 +132,7 @@ async def test_child_cannot_create_dependent_403_CHILD_CANNOT_CREATE_DEPENDENT(
     child_client,
 ) -> None:
     r = await child_client.post(PLAYERS, json=kid())
-    assert r.status_code == 403
+    assert r.status_code == 403 and r.json()["error"]["code"] == "CHILD_CANNOT_CREATE_DEPENDENT"
 
 
 @pytest.mark.parametrize(

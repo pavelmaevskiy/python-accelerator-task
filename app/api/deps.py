@@ -172,9 +172,19 @@ async def reject_impersonation(principal: PrincipalDep) -> None:
         )
 
 
-async def reject_child(principal: PrincipalDep) -> None:
-    if principal.is_child:
-        raise PermissionDeniedError("CHILD_FORBIDDEN", "Not available to child accounts")
+def forbid_child(
+    code: str = "CHILD_FORBIDDEN", message: str = "Not available to child accounts"
+) -> Callable[[Principal], Awaitable[None]]:
+    """Route guard: child logins get 403 ``code`` (checked before body validation)."""
+
+    async def _guard(principal: PrincipalDep) -> None:
+        if principal.is_child:
+            raise PermissionDeniedError(code, message)
+
+    return _guard
+
+
+reject_child = forbid_child()
 
 
 async def require_tenant_scope(principal: PrincipalDep) -> uuid.UUID:

@@ -3,7 +3,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response
 
-from app.api.deps import PlayerServiceDep, PrincipalDep, reject_child, require_role
+from app.api.deps import PlayerServiceDep, PrincipalDep, forbid_child, reject_child, require_role
 from app.api.responses import error_responses
 from app.api.schemas import CursorParams, Page
 from app.api.v1.me.player_schemas import (
@@ -57,7 +57,12 @@ async def list_players(
     "/players",
     response_model=PlayerResponse,
     status_code=201,
-    dependencies=_parent_only,
+    dependencies=[
+        Depends(require_role(UserRole.PLAYER)),
+        Depends(
+            forbid_child("CHILD_CANNOT_CREATE_DEPENDENT", "Child accounts cannot create dependents")
+        ),
+    ],
     summary="Create a dependent player profile",
     responses=error_responses(403, 404, 409, 422),
 )

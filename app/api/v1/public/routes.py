@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 
-from app.api.deps import FingerprintDep, ShareLinkServiceDep, rate_limit
+from app.api.deps import BrandingServiceDep, FingerprintDep, ShareLinkServiceDep, rate_limit
 from app.api.responses import error_responses
-from app.api.v1.public.schemas import ShareLinkPreview
+from app.api.v1.public.schemas import PublicBranding, ShareLinkPreview
 
 router = APIRouter(prefix="/public", tags=["public"], responses=error_responses(429))
 
@@ -24,3 +24,17 @@ async def preview_share_link(
         logo_url=view.logo_url,
         kind=view.kind.value,
     )
+
+
+@router.get(
+    "/trainers/{slug}/branding",
+    response_model=PublicBranding,
+    summary="Public trainer branding (cached 5 minutes)",
+    responses=error_responses(404),
+)
+async def get_public_branding(
+    slug: str, response: Response, service: BrandingServiceDep
+) -> PublicBranding:
+    view = await service.get_public(slug)
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return PublicBranding.model_validate(view)

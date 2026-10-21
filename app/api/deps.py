@@ -27,6 +27,7 @@ from app.services.approval_service import ApprovalService
 from app.services.audit_service import AuditService
 from app.services.auth_service import AuthService
 from app.services.availability_service import AvailabilityService
+from app.services.branding_service import BrandingService
 from app.services.player_service import PlayerService
 from app.services.principal_service import PrincipalService
 from app.services.registration_service import RegistrationService
@@ -336,3 +337,19 @@ def get_approval_service(
 
 
 ApprovalServiceDep = Annotated[ApprovalService, Depends(get_approval_service)]
+
+
+def get_branding_service(
+    session: SessionDep, uow: UowDep, uploads: UploadServiceDep, container: ContainerDep
+) -> BrandingService:
+    return BrandingService(
+        uow,
+        ProfileRepo(session),
+        UserRepo(session),
+        uploads,
+        container.storage,
+        container.redis,
+    )
+
+
+BrandingServiceDep = Annotated[BrandingService, Depends(get_branding_service)]

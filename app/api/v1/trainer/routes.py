@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Query, Response
 
 from app.api.deps import (
     AvailabilityServiceDep,
+    BrandingServiceDep,
     PrincipalDep,
     ShareLinkServiceDep,
     default_rate_limit,
@@ -13,7 +14,14 @@ from app.api.deps import (
 from app.api.responses import error_responses
 from app.api.schemas import Page
 from app.api.v1.me.schemas import AvailabilityResponse
-from app.api.v1.trainer.schemas import CreateShareLink, ShareLinkListParams, ShareLinkResponse
+from app.api.v1.trainer.schemas import (
+    BrandingResponse,
+    CreateShareLink,
+    ShareLinkListParams,
+    ShareLinkResponse,
+    UpdateBranding,
+)
+from app.api.v1.uploads import LogoPresignRequest, PresignResponse
 from app.core.enums import ShareLinkKind, UserRole
 
 router = APIRouter(
@@ -86,3 +94,40 @@ async def get_player_availability(
     player_id: uuid.UUID, principal: PrincipalDep, service: AvailabilityServiceDep
 ) -> AvailabilityResponse:
     return AvailabilityResponse.model_validate(await service.get_for_trainer(principal, player_id))
+
+
+@router.get(
+    "/branding",
+    response_model=BrandingResponse,
+    summary="Get the trainer's portal branding",
+)
+async def get_branding(principal: PrincipalDep, service: BrandingServiceDep) -> BrandingResponse:
+    return BrandingResponse.model_validate(await service.get(principal))
+
+
+@router.patch(
+    "/branding",
+    response_model=BrandingResponse,
+    summary="Update portal branding (and confirm a logo upload)",
+    responses=error_responses(404, 422),
+)
+async def update_branding(
+    payload: UpdateBranding, principal: PrincipalDep, service: BrandingServiceDep
+) -> BrandingResponse:
+    changes = payload.model_dump(exclude_unset=True, mode="json")  # URLs become plain strings
+    return BrandingResponse.model_validate(await service.update(principal, changes))
+
+
+@router.put(
+    "/branding/logo",
+    response_model=PresignResponse,
+    summary="Obtain a presigned upload slot for the logo",
+    responses=error_responses(422),
+)
+async def presign_logo(
+    payload: LogoPresignRequest, principal: PrincipalDep, service: BrandingServiceDep
+) -> PresignResponse:
+    view = await service.presign_logo(
+        principal, content_type=payload.content_type, content_length=payload.content_length
+    )
+    return PresignResponse.model_validate(view)

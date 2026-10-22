@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Specify `CANNOT_TARGET_SELF`, `CANNOT_MODIFY_ADMIN`, and `USER_PENDING` error codes in Epic-01 and add an admin user-management error registry to the backend conventions
+
 ### Changed
+- Specify that erasing a user expires pending purchase approvals on profiles they own or log in to (Epic-01 US-01.13), and that impersonation checks `CANNOT_TARGET_SELF` before the admin-role check (US-01.07)
 - Require Context Summary + Next Steps in the chat (never written into task/spec artifacts) and codify it in AGENTS.md (5b9f95e)
 
 ### Fixed

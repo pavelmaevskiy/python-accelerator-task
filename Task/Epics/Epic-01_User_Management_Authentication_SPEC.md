@@ -365,7 +365,8 @@ Index `ix_refresh_family (family_id) WHERE revoked_at IS NULL`.
 
 **Acceptance criteria**
 - [ ] `200` returns a token pair whose access token carries `sub = target`, `act = admin`, TTL ≤ 60 min
-- [ ] Target with `role = super_admin` ⇒ `403 CANNOT_IMPERSONATE_ADMIN`
+- [ ] Target equals the caller ⇒ `403 CANNOT_TARGET_SELF` (checked first; the caller is always a `super_admin`, so this check must precede the role check or it could never fire)
+- [ ] Target is *another* `super_admin` ⇒ `403 CANNOT_IMPERSONATE_ADMIN`
 - [ ] Opens an `impersonation_sessions` row; `POST /auth/impersonation/exit` closes it and revokes the `jti`
 - [ ] Session past `expires_at` ⇒ token rejected `401 IMPERSONATION_EXPIRED`
 - [ ] Every request with `act` present writes an audit row including method, path, and target
@@ -421,7 +422,8 @@ Same contract as US-01.09 with `subject_type = coach`.
 - [ ] `status = inactive`; all refresh families revoked; existing access tokens rejected on next `deps` check (status is re-read per request)
 - [ ] Historical rows (RSVPs, attendance, transactions) untouched
 - [ ] Deactivating a trainer cascades to *hiding* their tenant from players but never deletes data
-- [ ] `.../reactivate` restores `active`; a `deleted` user cannot be reactivated ⇒ `409 USER_ERASED`
+- [ ] `.../reactivate` restores `active`; a `deleted` user cannot be reactivated ⇒ `409 USER_ERASED`; a `pending` user (never activated, so nothing to restore) ⇒ `409 USER_PENDING`
+- [ ] A super_admin deactivating their own account ⇒ `403 CANNOT_TARGET_SELF`; deactivating another `super_admin` ⇒ `403 CANNOT_MODIFY_ADMIN`
 - [ ] Audit row on both transitions
 
 ### US-01.13 — Super Admin erases a user (GDPR)
@@ -429,11 +431,14 @@ Same contract as US-01.09 with `subject_type = coach`.
 `DELETE /api/v1/admin/users/{id}`
 
 **Acceptance criteria**
-- [ ] Anonymises in place: `email = 'erased+<uuid>@invalid'`, `password_hash` randomised, `profiles` names → `"Deleted User"`, phone/school/avatar nulled, `player_profiles.display_name` → `"Deleted Player"`
+- [ ] Anonymises in place: `email = 'erased+<uuid>@invalid'`, `password_hash` randomised, `profiles` names → `"Deleted User"`, phone/school/avatar nulled, `player_profiles.display_name` → `"Deleted Player"` for profiles whose `owner_user_id` is the erased user (profiles that only reference them via `login_user_id` are not modified)
 - [ ] `status = deleted`, `deleted_at` set, all refresh families revoked
 - [ ] FKs are **never** cascaded — attendance, RSVP, and transaction rows keep pointing at the anonymised user
 - [ ] Writes `user_erasures` with the hashed original email and `legal_retention_until`
 - [ ] Dependents of an erased parent are erased in the same transaction
+- [ ] Erasing a user transitions every `pending` `purchase_approvals` row to `expired` in the same transaction when its `player_profile_id` references a profile with `owner_user_id` = the erased user **or** `login_user_id` = the erased user (`responded_at` stays null, no notification job is enqueued). This covers an adult's own profile, a parent's dependents (erased with the parent), and a child's own login user erased directly. Erasing only a child's login user anonymises that user and leaves the dependent profile and its owner untouched (`login_user_id` keeps pointing at the anonymised row; no cascade). A later approve/deny ⇒ `409 APPROVAL_NOT_PENDING`
+- [ ] A parent may set a new login for a dependent whose `login_user_id` references a `deleted` user; this replaces the pointer (US-01.06)
+- [ ] A super_admin erasing their own account ⇒ `403 CANNOT_TARGET_SELF`; erasing another `super_admin` ⇒ `403 CANNOT_MODIFY_ADMIN`
 - [ ] The operation is irreversible; a second `DELETE` ⇒ `409 ALREADY_ERASED`
 - [ ] Test asserts no plaintext of the original email survives in any table or index
 
@@ -472,7 +477,7 @@ Same contract as US-01.09 with `subject_type = coach`.
 **Parent / child**
 - Every profile with `is_dependent` and age < 18 is owned by a parent account; there is no independent minor account.
 - Contact details of record live on the parent's `profiles` row.
-- Approval requests expire at 48 h and cannot be resurrected.
+- Approval requests expire at 48 h (or immediately when the owner or login user of the requesting player profile is erased) and cannot be resurrected.
 
 **Impersonation**
 - Never targets `super_admin`; capped at 60 min; every request audited; admin routes blocked while impersonating.

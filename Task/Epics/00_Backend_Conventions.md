@@ -154,6 +154,20 @@ Domain exceptions map to status codes centrally:
 
 Handlers never assemble error bodies by hand.
 
+**Error code registry** — every code added by the admin user-management rules (Epic-01
+US-01.07, 01.12, 01.13). The cited story is authoritative for when each is raised; this table
+is the index.
+
+| Code | Status | Exception | Story |
+|:---|:---|:---|:---|
+| `CANNOT_TARGET_SELF` | 403 | `PermissionDeniedError` | US-01.07, 01.12, 01.13 |
+| `CANNOT_MODIFY_ADMIN` | 403 | `PermissionDeniedError` | US-01.12, 01.13 |
+| `CANNOT_IMPERSONATE_ADMIN` | 403 | `PermissionDeniedError` | US-01.07 |
+| `USER_PENDING` | 409 | `ConflictError` | US-01.12 |
+| `USER_ERASED` | 409 | `ConflictError` | US-01.12 |
+| `ALREADY_ERASED` | 409 | `ConflictError` | US-01.13 |
+| `IMPERSONATION_EXPIRED` | 401 | none (rejected at token validation, no domain exception in the table above) | US-01.07 |
+
 **Idempotency** — every endpoint that moves money or consumes capacity accepts an
 `Idempotency-Key` header. Keys live in
 `idempotency_keys(key, principal_id, endpoint, request_hash, response_status, response_body, created_at)`

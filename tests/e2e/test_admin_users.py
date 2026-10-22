@@ -235,3 +235,44 @@ async def test_failed_mutation_writes_no_audit_row(admin_client, make_user, audi
     erased = await make_user(status="deleted")
     await admin_client.patch(f"{URL}/{erased.id}", json={"first_name": "x"})
     assert await audit_rows(action="user.updated") == 0
+
+
+async def test_cannot_deactivate_self_409_or_another_super_admin_403(
+    admin_client, make_user, db_session
+) -> None:
+    own = await admin_client.post(f"{URL}/{admin_client.user.id}/deactivate")
+    assert own.status_code == 409 and own.json()["error"]["code"] == "CANNOT_TARGET_SELF"
+    peer = await make_user(role="super_admin")
+    r = await admin_client.post(f"{URL}/{peer.id}/deactivate")
+    assert r.status_code == 403 and r.json()["error"]["code"] == "CANNOT_MODIFY_ADMIN"
+    for u in (admin_client.user, peer):
+        row = await db_session.get(User, u.id, populate_existing=True)
+        assert row.status.value == "active"
+
+
+async def test_reactivating_a_pending_trainer_is_409_USER_PENDING(
+    admin_client, make_user, db_session
+) -> None:
+    pending = await make_user(role="trainer", status="pending")
+    r = await admin_client.post(f"{URL}/{pending.id}/reactivate")
+    assert r.status_code == 409 and r.json()["error"]["code"] == "USER_PENDING"
+    row = await db_session.get(User, pending.id, populate_existing=True)
+    assert row.status.value == "pending"
+
+
+async def test_deactivating_the_target_ends_its_impersonation_sessions(
+    admin_client, make_user, db_session
+) -> None:
+    target = await make_user()
+    await admin_client.post(f"{URL}/{target.id}/impersonate")
+    assert (await admin_client.post(f"{URL}/{target.id}/deactivate")).status_code == 200
+    sessions = (
+        (
+            await db_session.execute(
+                select(ImpersonationSession).execution_options(populate_existing=True)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert sessions and all(s.ended_at is not None for s in sessions)

@@ -8,12 +8,13 @@ import anyio.to_thread
 
 from app.core.clock import Clock
 from app.core.enums import OneTimeTokenKind, UserRole, UserStatus
-from app.core.errors import ConflictError, NotFoundError
+from app.core.errors import ConflictError, NotFoundError, PermissionDeniedError
 from app.core.pagination import PageResult, build_page, decode_cursor
 from app.core.principal import Principal
 from app.core.security import PasswordHasher, generate_opaque_token, hash_token
 from app.core.unit_of_work import UnitOfWork
 from app.models.identity import Profile, TrainerProfile, User
+from app.repositories.impersonation_repo import ImpersonationRepo
 from app.repositories.profile_repo import ProfileRepo
 from app.repositories.token_repo import TokenRepo
 from app.repositories.user_repo import UserFilter, UserRepo, UserRow
@@ -88,6 +89,7 @@ class AdminUserService:
         users: UserRepo,
         profiles: ProfileRepo,
         tokens: TokenRepo,
+        impersonations: ImpersonationRepo,
         audit: AuditService,
         hasher: PasswordHasher,
         clock: Clock,
@@ -96,6 +98,7 @@ class AdminUserService:
         self._users = users
         self._profiles = profiles
         self._tokens = tokens
+        self._impersonations = impersonations
         self._audit = audit
         self._hasher = hasher
         self._clock = clock
@@ -110,6 +113,14 @@ class AdminUserService:
     def _reject_erased(row: UserRow) -> None:
         if row.user.status == UserStatus.DELETED:
             raise ConflictError("USER_ERASED", "This user has been erased")
+
+    @staticmethod
+    def _guard_target(admin: Principal, row: UserRow) -> None:
+        """Deactivation is never allowed on oneself or on another super-admin."""
+        if row.user.id == admin.user_id:
+            raise ConflictError("CANNOT_TARGET_SELF", "You cannot deactivate your own account")
+        if row.user.role == UserRole.SUPER_ADMIN:
+            raise PermissionDeniedError("CANNOT_MODIFY_ADMIN", "Super admins cannot be deactivated")
 
     async def list(
         self,
@@ -154,9 +165,13 @@ class AdminUserService:
         async with self._uow:
             row = await self._row(user_id)
             self._reject_erased(row)
+            self._guard_target(admin, row)
             if row.user.status != UserStatus.INACTIVE:
+                now = self._clock.now()
                 row.user.status = UserStatus.INACTIVE
-                await self._tokens.revoke_all_for_user(user_id, now=self._clock.now())
+                await self._tokens.revoke_all_for_user(user_id, now=now)
+                # Sessions where the user is the target or the impersonating admin die with it.
+                await self._impersonations.end_all_for_user(user_id, now=now)
                 await self._audit.record(
                     actor_user_id=admin.user_id,
                     action="user.deactivated",
@@ -169,6 +184,9 @@ class AdminUserService:
         async with self._uow:
             row = await self._row(user_id)
             self._reject_erased(row)  # a deleted (erased) user can never be restored
+            if row.user.status == UserStatus.PENDING:
+                # PENDING -> ACTIVE would skip the trainer setup flow (password never set).
+                raise ConflictError("USER_PENDING", "This user has not completed account setup")
             if row.user.status != UserStatus.ACTIVE:
                 row.user.status = UserStatus.ACTIVE
                 await self._audit.record(

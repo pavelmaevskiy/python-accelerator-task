@@ -276,3 +276,53 @@ async def test_non_admins_and_impersonated_admins_cannot_erase(
     for c in (non_trainer_client, trainer_client):
         if c.user.role.value != "super_admin":
             assert (await c.delete(url(victim.id), json=REASON)).status_code == 403
+
+
+async def test_erasing_a_child_login_anonymises_its_profile_and_cuts_trainer_links(
+    admin_client, victim, make_child, make_trainer, link_player, db_session
+) -> None:
+    from app.models.identity import TrainerPlayerLink
+
+    trainer = await make_trainer()
+    child_user, child_profile = await make_child(victim, email="kid.login4411@x.co")
+    child_profile.school = "Zephyr Junior"
+    child_profile.jersey_number = 7
+    child_profile.emergency_contact_name = "Aunt Quill"
+    link = await link_player(trainer, child_profile)
+    await db_session.commit()
+
+    r = await admin_client.delete(url(child_user.id), json=REASON)
+    assert r.status_code == 204
+
+    profile = await reload(db_session, PlayerProfile, child_profile.id)
+    assert profile.display_name == "Deleted User" and profile.is_active is False
+    assert profile.birth_date.isoformat() == "1900-01-02"
+    assert profile.school is None and profile.jersey_number is None
+    assert profile.emergency_contact_name is None
+    assert (await reload(db_session, TrainerPlayerLink, link.id)).status.value == "inactive"
+    parent = await reload(db_session, User, victim.id)  # the parent is untouched
+    assert parent.status.value == "active" and parent.email == "vic.tim9137@x.co"
+
+
+async def test_erasing_a_parent_cuts_trainer_links_of_dependents(
+    admin_client, victim, make_dependent, make_trainer, link_player, db_session
+) -> None:
+    from app.models.identity import TrainerPlayerLink
+
+    kid = await make_dependent(victim)
+    link = await link_player(await make_trainer(), kid)
+    assert (await admin_client.delete(url(victim.id), json=REASON)).status_code == 204
+    assert (await reload(db_session, TrainerPlayerLink, link.id)).status.value == "inactive"
+
+
+async def test_cannot_erase_self_409_or_another_super_admin_403(
+    admin_client, make_user, db_session
+) -> None:
+    own = await admin_client.delete(url(admin_client.user.id), json=REASON)
+    assert own.status_code == 409 and own.json()["error"]["code"] == "CANNOT_TARGET_SELF"
+    peer = await make_user(role="super_admin")
+    r = await admin_client.delete(url(peer.id), json=REASON)
+    assert r.status_code == 403 and r.json()["error"]["code"] == "CANNOT_MODIFY_ADMIN"
+    for u in (admin_client.user, peer):
+        assert (await reload(db_session, User, u.id)).status.value == "active"
+    assert (await db_session.execute(select(UserErasure))).first() is None

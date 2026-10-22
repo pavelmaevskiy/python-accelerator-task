@@ -231,3 +231,12 @@ async def test_expiry_cron_closes_sessions_past_expires_at_idempotently(
         ).scalars()
     }
     assert rows[old.id] is not None and rows[fresh.id] is None
+
+
+async def test_impersonation_token_dies_when_the_impersonating_admin_is_deactivated(
+    impersonated_client, deactivate
+) -> None:
+    assert (await impersonated_client.get("/api/v1/me")).status_code == 200
+    await deactivate(impersonated_client.admin)
+    r = await impersonated_client.get("/api/v1/me")
+    assert r.status_code == 401 and r.json()["error"]["code"] == "IMPERSONATION_EXPIRED"

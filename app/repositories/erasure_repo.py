@@ -3,10 +3,10 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.enums import ApprovalStatus
+from app.core.enums import ApprovalStatus, LinkStatus
 from app.models.identity import (
     CoachMembership,
     CoachProfile,
@@ -16,6 +16,7 @@ from app.models.identity import (
     Profile,
     PurchaseApproval,
     ShareLink,
+    TrainerPlayerLink,
     TrainerProfile,
     UserErasure,
 )
@@ -28,10 +29,22 @@ class ErasureRepo:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def owned_player_profiles(self, owner_user_id: uuid.UUID) -> list[PlayerProfile]:
-        """Every profile the user owns, including deactivated ones."""
-        stmt = select(PlayerProfile).where(PlayerProfile.owner_user_id == owner_user_id)
+    async def player_profiles_of(self, user_id: uuid.UUID) -> list[PlayerProfile]:
+        """Every profile the user owns or logs in as (a child login), including deactivated ones."""
+        stmt = select(PlayerProfile).where(
+            or_(PlayerProfile.owner_user_id == user_id, PlayerProfile.login_user_id == user_id)
+        )
         return list((await self._session.execute(stmt)).scalars().all())
+
+    async def deactivate_links(self, player_profile_ids: list[uuid.UUID]) -> None:
+        """Erased profiles must stop granting any trainer access."""
+        if not player_profile_ids:
+            return
+        await self._session.execute(
+            update(TrainerPlayerLink)
+            .where(TrainerPlayerLink.player_profile_id.in_(player_profile_ids))
+            .values(status=LinkStatus.INACTIVE)
+        )
 
     async def anonymise_profile(self, user_id: uuid.UUID) -> str | None:
         """Blank the PII; returns the old avatar key so the object can be deleted."""

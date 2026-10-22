@@ -385,6 +385,7 @@ def get_admin_user_service(
         UserRepo(session),
         ProfileRepo(session),
         TokenRepo(session),
+        ImpersonationRepo(session),
         audit,
         container.hasher,
         container.clock,

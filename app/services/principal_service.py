@@ -45,6 +45,15 @@ class PrincipalService:
                         "IMPERSONATION_EXPIRED", "Impersonation session ended or expired"
                     )
                 act = _parse_uuid(act_claim, "act")
+                admin_state = await UserRepo(session).get_auth_state(act)
+                if (
+                    admin_state is None
+                    or admin_state.status != UserStatus.ACTIVE
+                    or admin_state.role != UserRole.SUPER_ADMIN
+                ):
+                    raise AuthenticationError(
+                        "IMPERSONATION_EXPIRED", "Impersonation session ended or expired"
+                    )
             tenancy = TenancyRepo(session)
             trainer_id: uuid.UUID | None = None
             if state.role == UserRole.TRAINER:

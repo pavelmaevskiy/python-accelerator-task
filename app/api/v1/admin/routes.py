@@ -119,7 +119,7 @@ async def update_user(
     "/users/{user_id}/deactivate",
     response_model=AdminUserResponse,
     summary="Deactivate a user (idempotent)",
-    responses=error_responses(404, 409),
+    responses=error_responses(403, 404, 409),
 )
 async def deactivate_user(
     user_id: uuid.UUID, principal: PrincipalDep, service: AdminUserServiceDep
@@ -164,7 +164,7 @@ async def impersonate_user(
     "/users/{user_id}",
     status_code=204,
     summary="Erase a user (GDPR): anonymise in place, never delete the row",
-    responses=error_responses(404, 409, 422),
+    responses=error_responses(403, 404, 409, 422),
 )
 async def erase_user(
     user_id: uuid.UUID,

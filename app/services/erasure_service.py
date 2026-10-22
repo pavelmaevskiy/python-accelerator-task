@@ -16,7 +16,7 @@ from redis.asyncio import Redis
 from app.core.clock import Clock
 from app.core.commitments import CommitmentChecker
 from app.core.enums import UserRole, UserStatus
-from app.core.errors import ConflictError, NotFoundError
+from app.core.errors import ConflictError, NotFoundError, PermissionDeniedError
 from app.core.principal import Principal
 from app.core.security import PasswordHasher, generate_opaque_token
 from app.core.unit_of_work import UnitOfWork
@@ -74,11 +74,15 @@ class ErasureService:
                 raise NotFoundError("NOT_FOUND", "User not found")
             if user.status == UserStatus.DELETED:
                 raise ConflictError("ALREADY_ERASED", "This user has already been erased")
-            dependents = await self._erasure.owned_player_profiles(user.id)
+            self._guard_target(admin, user)
+            dependents = await self._erasure.player_profiles_of(user.id)
             await self._check_commitments([p.id for p in dependents])  # 2. refuse if any exist
             original_email = user.email
             await self._anonymise(user, unusable, media, stale_cache)  # 3-4.
-            for profile in dependents:  # a parent's dependents (and their logins) go with them
+            # A parent's dependents (and their logins) go with them; a child login takes only its
+            # own profile (owned by the parent, who is not erased).
+            await self._erasure.deactivate_links([p.id for p in dependents])
+            for profile in dependents:
                 self._erasure.anonymise_player_profile(profile)
                 if profile.login_user_id is not None and profile.login_user_id != user.id:
                     child = await self._users.get_by_id(profile.login_user_id, for_update=True)
@@ -104,6 +108,14 @@ class ErasureService:
                 self._uow.enqueue("delete_s3_object", key=key)
         for key in stale_cache:
             await self._redis.delete(key)
+
+    @staticmethod
+    def _guard_target(admin: Principal, user: User) -> None:
+        """Erasure is irreversible: never on oneself or on another super-admin."""
+        if user.id == admin.user_id:
+            raise ConflictError("CANNOT_TARGET_SELF", "You cannot erase your own account")
+        if user.role == UserRole.SUPER_ADMIN:
+            raise PermissionDeniedError("CANNOT_MODIFY_ADMIN", "Super admins cannot be erased")
 
     async def _check_commitments(self, profile_ids: list[uuid.UUID]) -> None:
         blocking: list[uuid.UUID] = []

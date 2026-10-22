@@ -1,0 +1,57 @@
+[project]
+name = "trainer-platform"
+version = "1.0.0"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115", "uvicorn[standard]", "pydantic>=2.8", "pydantic-settings", "email-validator",
+  "sqlalchemy[asyncio]>=2.0.30", "asyncpg", "alembic", "redis>=5", "arq", "argon2-cffi", "pyjwt",
+  "zxcvbn", "uuid-utils", "boto3", "defusedxml", "structlog", "httpx", "tzdata",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "pytest-cov",
+    "ruff",
+    "mypy",
+    "types-boto3",
+    "freezegun",
+    "types-zxcvbn>=4.5.0.20260518",
+    "types-defusedxml>=0.7.0.20260504",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = ["integration: needs postgres+redis"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [".claude", ".worktrees", "Task", "specs", "tasks"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "ASYNC"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "E501"]
+"app/db/alembic/versions/*" = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["app"]
+plugins = ["pydantic.mypy"]
+
+[tool.coverage.run]
+source = ["app"]
+concurrency = ["greenlet", "thread"]  # SQLAlchemy asyncio runs queries in greenlets
+omit = ["app/db/alembic/*"]

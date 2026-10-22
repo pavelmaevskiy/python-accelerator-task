@@ -316,6 +316,39 @@ Use `/skill-creator` for guided skill creation.
 5. **Review code** before merging
 6. **Keep skills focused** - one skill, one purpose
 
+## Trainer Platform API (TASK-001, Epic-01)
+
+The first product slice built with this framework: the identity, tenancy and auth JSON API
+(44 operations across `auth`, `me`, `trainer`, `public`, `admin`). The HTTP contract lives in
+[specs/api-designer-spec.md](specs/api-designer-spec.md) and the design decisions in
+[specs/architect-architecture.md](specs/architect-architecture.md); this section only covers running it.
+
+```bash
+docker compose up -d db redis          # PostgreSQL 16 + Redis 7
+uv sync
+uv run alembic upgrade head            # schema (extensions: citext, btree_gist, pg_trgm)
+uv run uvicorn app.main:create_app --factory --reload   # http://localhost:8000/docs
+uv run arq app.jobs.worker.WorkerSettings               # email / cleanup jobs + cron
+```
+
+Configuration comes from the environment or a local `.env` (never committed): `DATABASE_URL`,
+`REDIS_URL`, `JWT_KEYS` (JSON map `kid -> secret`, at least 32 chars each), `JWT_CURRENT_KID`,
+`IP_HASH_SALT`, `PUBLIC_BASE_URL`, `S3_BUCKET`, `MEDIA_BASE_URL` (optional). With `ENV=dev` missing
+secrets are generated per process; any other `ENV` requires `JWT_KEYS` and `IP_HASH_SALT`.
+
+Quality gates (the same commands as [.claude/DOD.md](.claude/DOD.md)):
+
+```bash
+uv run ruff check . && uv run ruff format --check . && uv run mypy app
+uv run pytest                          # unit + integration + e2e; needs the compose services
+uv run pytest -m "not integration"     # unit tests only, no database or Redis
+uv run pytest --cov=app --cov-report=term-missing
+```
+
+Integration and e2e tests run against the `trainer_test` database (the schema is rebuilt from the
+Alembic migration once per session) and Redis db 15 (`TEST_REDIS_URL`). Load scenarios are in
+`tests/load/`.
+
 ## Repository layout (reference)
 
 The framework lives almost entirely under `.claude/`:
